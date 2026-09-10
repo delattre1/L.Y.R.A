@@ -13,6 +13,8 @@ Nothing here writes the message anywhere. It goes in on stdin, the findings come
 out, and the text is gone when the process exits.
 
     echo "sua conta sera bloqueada, acesse bradesco.seguro.top" | triage.py
+    triage.py --claims "Chase" < message.txt
+    triage.py --no-network < message.txt
 """
 
 import json
@@ -21,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import domain_age
 import link_check
 import scam_signals
 
@@ -30,12 +33,28 @@ CRITICAL_WEIGHT = 3
 STACKED_SCORE = 4
 
 
-def floor_for(text):
-    """Return (floor verdict, evidence) for a message."""
-    links = link_check.analyse(text)
+def floor_for(text, claims=None, network=False, cache=None):
+    """Return (floor verdict, evidence) for a message.
+
+    claims is the company the message says it is from, when the model can name
+    one. network decides whether registry lookups are allowed: triage asks, the
+    gate reads only what triage already cached, so sending stays fast and works
+    offline.
+    """
+    links = link_check.analyse(text, claims)
     signals = scam_signals.analyse(text)
 
-    evidence = [
+    if cache is None:
+        cache = domain_age._load_cache() if links else {}
+
+    ages = []
+    for owner in dict.fromkeys(link["owner"] for link in links):
+        entry = domain_age.lookup(owner, network=network, cache=cache)
+        finding = domain_age.as_finding(entry)
+        if finding:
+            ages.append(dict(finding, url=owner))
+
+    evidence = ages + [
         {"code": f["code"], "weight": f["weight"], "detail": f["detail"], "url": link["url"]}
         for link in links for f in link["findings"]
     ] + [
@@ -76,6 +95,16 @@ def _self_test():
          floor("oi filho, chego às 19h") == "No red flags found"),
         ("real bank domain stays quiet",
          floor("veja em https://www.bradesco.com.br/") == "No red flags found"),
+        ("a domain registered days ago raises the floor on its own",
+         floor_for("veja em https://nova-loja.example/", cache={
+             "nova-loja.example": {"domain": "nova-loja.example", "age_days": 5,
+                                   "bucket": "young", "checked": 9e9}})[0] == "Likely scam"),
+        ("an old domain adds nothing",
+         floor_for("veja em https://nova-loja.example/", cache={
+             "nova-loja.example": {"domain": "nova-loja.example", "age_days": 4000,
+                                   "bucket": "old", "checked": 9e9}})[0] == "No red flags found"),
+        ("an unanswered lookup adds nothing",
+         floor_for("veja em https://nova-loja.example/", cache={})[0] == "No red flags found"),
         ("the floor never demands Scam",
          all(floor_for(t)[0] != "Scam" for t in [
              "me manda o código agora, instale o anydesk, conta bloqueada, bit.ly/x",
@@ -90,7 +119,14 @@ def _self_test():
 
 
 if __name__ == "__main__":
-    if "--self-test" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if "--self-test" in args:
         sys.exit(_self_test())
-    _, report = floor_for(sys.stdin.read())
+
+    claims = None
+    if "--claims" in args:
+        claims = args[args.index("--claims") + 1]
+    offline = "--no-network" in args
+
+    _, report = floor_for(sys.stdin.read(), claims=claims, network=not offline)
     print(json.dumps(report, indent=2, ensure_ascii=False))

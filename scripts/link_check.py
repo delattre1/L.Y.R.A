@@ -3,8 +3,14 @@
 
 Nothing here talks to the network. Everything is structural: the shape of the
 host, how it compares to the brand the message is claiming, whether the address
-is hiding its destination. Registration age needs a lookup and belongs in a
-separate module that is allowed to fail.
+is hiding its destination. Registration age needs a lookup and lives in
+domain_age.py, which is allowed to fail.
+
+Most of these checks know nothing about any particular company. A host with
+".com." buried in the middle of it is spoofing something whether or not we have
+heard of it, and so is a name with a zero standing in for an O. The brand table
+below is the exception, and it earns its place mainly by keeping real addresses
+quiet rather than by catching fake ones.
 
     link_check.py --self-test
     echo "click http://bradesco.seguro-app.top/login" | link_check.py
@@ -129,6 +135,10 @@ URL_RE = re.compile(
 
 WEIGHTS = {
     "brand_mismatch": 3,
+    "embedded_suffix": 3,
+    "claimed_brand_mismatch": 2,
+    "digit_for_letter": 2,
+    "many_hyphens": 1,
     "lookalike_domain": 3,
     "punycode_host": 3,
     "userinfo_in_url": 3,
@@ -190,8 +200,12 @@ _KNOWN_TLDS = {
 } | CHEAP_TLDS
 
 
-def inspect(url):
-    """Return what is structurally wrong with one URL."""
+def inspect(url, claims=None):
+    """Return what is structurally wrong with one URL.
+
+    claims is the company the message says it is from, if the model could name
+    one. It costs nothing when absent and covers every brand nobody listed.
+    """
     raw = url
     scheme, _, rest = url.partition("://")
     if not rest:
@@ -229,6 +243,22 @@ def inspect(url):
         findings.append(("deep_subdomains",
                          "the real address is buried behind several fake ones"))
 
+    # A public suffix sitting in the middle of the host is a fake address glued
+    # in front of the real one, and this holds for any brand at all.
+    prefix = host[: -len(owner)] if host.endswith(owner) else host
+    if re.search(r"(^|\.)(com|net|org|gov|edu)(\.[a-z]{2})?\.", prefix):
+        findings.append(("embedded_suffix",
+                         f"the address only looks like it ends at {prefix.strip('.')}"))
+
+    label = owner.split(".")[0]
+    # A digit standing in for a letter, which reads as the letter on a phone.
+    if len(label) >= 5 and re.fullmatch(r"[a-z]*[01345]+[a-z]+|[a-z]+[01345]+[a-z]*", label):
+        findings.append(("digit_for_letter",
+                         f"{label} uses digits where letters belong"))
+    if label.count("-") >= 2:
+        findings.append(("many_hyphens",
+                         f"{label} is a phrase dressed up as a company name"))
+
     owner_label = _fold(owner.split(".")[0])
     # Two readings of the address: hyphens as separators, and hyphens removed.
     # The first catches bradesco-seguro, the second catches bank-of-america.
@@ -257,6 +287,15 @@ def inspect(url):
                              f"{owner} is one or two letters away from {brand}"))
             break
 
+    if claims:
+        wanted = re.sub(r"[^a-z0-9]", "", _fold(claims))
+        known = {d for brand, domains in BRANDS.items() if brand in wanted for d in domains}
+        # The name has to be the whole address, not a word inside it. Scammers
+        # put the brand in the domain, which is the entire trick.
+        if wanted and wanted != re.sub(r"[^a-z0-9]", "", label) and owner not in known:
+            findings.append(("claimed_brand_mismatch",
+                             f"the message says it is from {claims}, but the address is {owner}"))
+
     return _result(raw, host, owner, findings)
 
 
@@ -269,8 +308,8 @@ def _result(url, host, owner, findings):
     return {"url": url, "host": host, "owner": owner, "findings": unique}
 
 
-def analyse(text):
-    return [inspect(u) for u in find_urls(text)]
+def analyse(text, claims=None):
+    return [inspect(u, claims) for u in find_urls(text)]
 
 
 def _self_test():
@@ -299,6 +338,29 @@ def _self_test():
         ("purchase is not chase", codes("https://purchase.example.com/cart") == set()),
         ("pineapple is not apple", codes("https://pineapple.com") == set()),
         ("zelle in the path", "brand_mismatch" in codes("http://pagar.online/zelle/verify")),
+        ("suffix buried in the host",
+         "embedded_suffix" in codes("http://itau.com.br.acesso.xyz/login")),
+        ("suffix trick works for unknown brands",
+         "embedded_suffix" in codes("http://coop-credit-union.com.secure.icu/")),
+        ("zero for o", "digit_for_letter" in codes("http://bradesc0.com/")),
+        ("office365 is not a trick", "digit_for_letter" not in codes("https://office365.com/")),
+        ("hyphen soup", "many_hyphens" in codes("http://secure-account-update.online/")),
+        ("a named claim catches an unlisted brand",
+         "claimed_brand_mismatch" in {f["code"] for link in
+          analyse("pay at http://faturas-online.icu/x", claims="Sicredi")
+          for f in link["findings"]}),
+        ("a named claim catches the brand hidden in the domain",
+         "claimed_brand_mismatch" in {f["code"] for link in
+          analyse("http://sicredi-faturas.icu/2", claims="Sicredi")
+          for f in link["findings"]}),
+        ("a named claim tolerates a listed brand on another domain",
+         "claimed_brand_mismatch" not in {f["code"] for link in
+          analyse("https://www.magalu.com/pedido", claims="Magazine Luiza")
+          for f in link["findings"]}),
+        ("a named claim stays quiet on the real address",
+         "claimed_brand_mismatch" not in {f["code"] for link in
+          analyse("https://www.sicredi.com.br/", claims="Sicredi")
+          for f in link["findings"]}),
         ("real domain keeps its subdomains", codes("https://banco.bradesco.com.br/a/b") == set()),
     ]
     for name, passed in cases:

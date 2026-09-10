@@ -146,7 +146,10 @@ def build(payload):
             "what the person actually sent, transcribed if it arrived as a picture."
         )
 
-    floor, report = floor_for(message)
+    # network=False on purpose: the gate reads registry answers that triage
+    # already cached and never waits on a lookup while someone is waiting for a
+    # reply. A cold cache costs evidence, and evidence only ever adds caution.
+    floor, report = floor_for(message, claims=payload.get("claims"), network=False)
     if SEVERITY[verdict] < SEVERITY[floor]:
         found = ", ".join(dict.fromkeys(item["code"] for item in report["evidence"]))
         raise Refused(

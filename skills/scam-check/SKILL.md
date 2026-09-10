@@ -23,27 +23,38 @@ reasoning if the picture cuts something off.
 ## Then run triage
 
 ```bash
-python3 /var/lib/hermes/scripts/triage.py <<'MSG'
+python3 /var/lib/hermes/scripts/triage.py --claims "Bradesco" <<'MSG'
 Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login
 MSG
 ```
+
+Pass `--claims` whenever the message says who it is from, using the name as the
+message gives it: Bradesco, Chase, USPS, the IRS, the local credit union. You are
+the only part of this that can read a logo, a signature, or a sender name, and the
+check compares that name against who the address actually belongs to. It works for
+companies nobody wrote down anywhere.
 
 You get back the links with what is wrong with each one, the wording signals with
 what each one means, a score, and a floor. The floor is the least cautious verdict
 this message can receive. Read it before you form an opinion, not after.
 
+Triage also asks the registry how old each domain is. A bank's address is decades
+old and the one impersonating it is usually days old, so this catches fakes with
+no brand knowledge at all. The lookup is allowed to fail and often will, on a slow
+network or a registry that does not answer. Silence there means no answer, which
+is not the same as an answer of no.
+
 ## What triage cannot see
 
-It reads the text and nothing else. It does not know whether this person even
-banks at Chase, whether they were expecting a delivery, whether the sender is in
-their contacts, or what they told you three messages ago. It only knows the brands
-in its table and the wording in its patterns, so a well written scam with no link
-and no stock phrases comes back quiet.
+It does not know whether this person even banks at Chase, whether they were
+expecting a delivery, whether the sender is in their contacts, or what they told
+you three messages ago. A well written scam with no link and no stock wording
+comes back quiet.
 
-The table covers the big Brazilian and American names and the usual wording in
-Portuguese and English. A regional credit union, a state agency, a small local
-shop, or a scam written in careful prose will not be in there. Quiet output means
-the checks found nothing, and nothing else.
+It also cannot see the message the way you can. The name in the signature, the
+logo in the screenshot, the fact that the writing does not sound like the company
+it claims to be: all of that is yours, and `--claims` is how you hand the useful
+part of it to the checks.
 
 That gap is your job. The floor is a minimum, never a target. If triage says
 Can't tell and you can see exactly how the money leaves, send Scam.
@@ -68,6 +79,7 @@ conversation worries you. It says what you did. It is not a promise.
 python3 /var/lib/hermes/scripts/verdict_gate.py <<'JSON'
 {
   "message": "Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login",
+  "claims": "Bradesco",
   "lang": "pt",
   "verdict": "Likely scam",
   "reasoning": "O link diz Bradesco, mas o endereço é seguro-app.top, que não pertence ao banco.",
@@ -85,6 +97,11 @@ scripts share. Everything the person reads is not: write the other three fields 
 their language and set `lang` to `en` or `pt` to match. The gate renders the
 verdict line, the "what to do" prefix, and the caution in that language, and it
 refuses if `lang` disagrees with the prose you wrote.
+
+Pass `claims` here too, the same string you gave triage. The gate reruns the
+checks on the message before it sends anything, and it reuses the registry answers
+triage already fetched instead of waiting on the network again. Skipping triage
+means the gate has nothing cached and decides without the age of the domain.
 
 The gate returns the finished reply and you send it exactly as printed, with
 nothing added, removed, or translated afterward.
