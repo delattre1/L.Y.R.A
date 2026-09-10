@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Everything code can say about a message before anyone has an opinion.
 
-Runs the link and wording checks, adds up what came back, and sets the floor:
+Runs the link, payment and wording checks, adds up what came back, and sets the
+floor:
 the least cautious verdict this message is allowed to receive. The model reads
 this before writing, and the verdict gate recomputes it at send time, so a reply
 cannot end up softer than the evidence.
@@ -25,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import domain_age
 import link_check
+import payment_check
 import reputation
 import scam_signals
 
@@ -44,6 +46,7 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
     """
     links = link_check.analyse(text, claims)
     signals = scam_signals.analyse(text)
+    payments = payment_check.analyse(text, claims)
 
     if cache is None:
         cache = domain_age._load_cache() if links else {}
@@ -65,7 +68,13 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
         if finding:
             ages.append(dict(finding, url=owner))
 
-    evidence = listed + ages + [
+    # A feed that is missing or three weeks old cannot clear anything, so calling
+    # a message with a link clean on that basis would be claiming a check we did
+    # not run. It holds the message at "can't tell" and carries no weight, since
+    # our own blindness is not evidence against the sender.
+    blind = bool(links) and not any(not feed["stale"] for feed in feeds.values())
+
+    evidence = listed + ages + payments + [
         {"code": f["code"], "weight": f["weight"], "detail": f["detail"], "url": link["url"]}
         for link in links for f in link["findings"]
     ] + [
@@ -78,20 +87,29 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
 
     if critical or score >= STACKED_SCORE:
         floor = "Likely scam"
-    elif score >= 1:
+    elif score >= 1 or blind:
         floor = "Can't tell"
     else:
         floor = "No red flags found"
 
     stale = sorted(name for name, feed in feeds.items() if feed["stale"])
-    return floor, {"links": links, "signals": signals, "evidence": evidence,
-                   "score": score, "critical": critical, "floor": floor,
-                   "feeds": sorted(feeds), "stale_feeds": stale}
+    return floor, {"links": links, "signals": signals, "payments": payments,
+                   "evidence": evidence, "score": score, "critical": critical,
+                   "floor": floor, "feeds": sorted(feeds), "stale_feeds": stale,
+                   "blind": blind}
 
 
 def _self_test():
-    def floor(text):
-        return floor_for(text)[0]
+    # What the checks look like on a machine where the feeds are installed and
+    # were downloaded recently, which is the state the agent runs in.
+    fresh = {"openphish": {"kind": "phishing", "urls": set(), "hosts": {},
+                           "age_days": 0.2, "stale": False}}
+    old = {"openphish": {"kind": "phishing", "urls": set(), "hosts": {},
+                         "age_days": 40.0, "stale": True}}
+
+    def floor(text, **kwargs):
+        kwargs.setdefault("feeds_override", fresh)
+        return floor_for(text, **kwargs)[0]
 
     cases = [
         ("code request cannot come back clean",
@@ -109,27 +127,41 @@ def _self_test():
         ("real bank domain stays quiet",
          floor("veja em https://www.bradesco.com.br/") == "No red flags found"),
         ("a domain registered days ago raises the floor on its own",
-         floor_for("veja em https://nova-loja.example/", cache={
+         floor("veja em https://nova-loja.example/", cache={
              "nova-loja.example": {"domain": "nova-loja.example", "age_days": 5,
-                                   "bucket": "young", "checked": 9e9}})[0] == "Likely scam"),
+                                   "bucket": "young", "checked": 9e9}}) == "Likely scam"),
         ("an old domain adds nothing",
-         floor_for("veja em https://nova-loja.example/", cache={
+         floor("veja em https://nova-loja.example/", cache={
              "nova-loja.example": {"domain": "nova-loja.example", "age_days": 4000,
-                                   "bucket": "old", "checked": 9e9}})[0] == "No red flags found"),
-        ("a feed hit is enough on its own", (lambda: (
-            floor_for("clique em http://feedlisted.example/x",
-                      feeds_override={"test": {"kind": "phishing",
-                                               "urls": {"feedlisted.example/x"},
-                                               "hosts": {"feedlisted.example": 1},
-                                               "age_days": 0, "stale": False}})[0]
-            == "Likely scam"))()),
-        ("no feeds on disk is not a signal",
+                                   "bucket": "old", "checked": 9e9}}) == "No red flags found"),
+        ("a feed hit is enough on its own",
          floor_for("clique em http://feedlisted.example/x",
-                   feeds_override={})[0] == "No red flags found"),
+                   feeds_override={"test": {"kind": "phishing",
+                                            "urls": {"feedlisted.example/x"},
+                                            "hosts": {"feedlisted.example": 1},
+                                            "age_days": 0, "stale": False}})[0] == "Likely scam"),
         ("an unanswered lookup adds nothing",
-         floor_for("veja em https://nova-loja.example/", cache={})[0] == "No red flags found"),
+         floor("veja em https://nova-loja.example/", cache={}) == "No red flags found"),
+        ("a link cannot come back clean with no feeds on disk",
+         floor("veja em https://www.bradesco.com.br/", feeds_override={}) == "Can't tell"),
+        ("nor with feeds nobody has downloaded in weeks",
+         floor("veja em https://www.bradesco.com.br/", feeds_override=old) == "Can't tell"),
+        ("but our own blindness is never evidence against the message",
+         floor_for("veja em https://www.bradesco.com.br/",
+                   feeds_override=old)[1]["evidence"] == []),
+        ("a message with no link is unaffected by the feeds",
+         floor("oi filho, chego às 19h", feeds_override={}) == "No red flags found"),
+        ("a boleto that charges more than the message says cannot come back clean",
+         floor("sua fatura de R$ 89,90 segue no boleto "
+               + payment_check._bank_line(cents=475000)) == "Likely scam"),
+        ("a boleto drawn on another bank than the message claims is enough on its own",
+         floor("aqui está o boleto " + payment_check._bank_line(bank="341"),
+               claims="Bradesco") == "Likely scam"),
+        ("an ordinary boleto stays where the wording puts it",
+         floor("segue o boleto " + payment_check._bank_line(bank="341", cents=8990)
+               + " no valor de R$ 89,90", claims="Itaú") == "Can't tell"),
         ("the floor never demands Scam",
-         all(floor_for(t)[0] != "Scam" for t in [
+         all(floor(t) != "Scam" for t in [
              "me manda o código agora, instale o anydesk, conta bloqueada, bit.ly/x",
              "pix urgente pra chave abaixo senão sua conta será cancelada hoje",
          ])),

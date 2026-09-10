@@ -20,6 +20,7 @@ put up an hour ago is on none of them. That asymmetry is the same one the verdic
 scale is built on.
 
     reputation.py --refresh
+    reputation.py --serve --every 3600
     reputation.py http://example.com/bad
     reputation.py --self-test
 """
@@ -60,6 +61,12 @@ STALE_DAYS = 14
 # CDNs, which are not themselves dangerous. A host carrying more entries than
 # this is shared infrastructure, so its name alone says nothing.
 MAX_HOST_ENTRIES = 25
+
+# Phishing has a half life measured in hours, so a feed downloaded last week is
+# most of the way to useless. This is how often --serve goes back for more, and
+# how long a file on disk is allowed to sit before it counts as due.
+REFRESH_EVERY = 3600
+POLL = 300
 
 AGENT = "lyra-scam-check/1.0 (+https://aiworthusing.com/agent-index)"
 
@@ -148,6 +155,39 @@ def refresh(feed_dir=None, only=None):
     return report
 
 
+def due(feed_dir=None, every=REFRESH_EVERY):
+    """Which feeds are old enough to be worth downloading again."""
+    feed_dir = feed_dir or FEED_DIR
+    stale = []
+    for name in SOURCES:
+        try:
+            age = time.time() - os.path.getmtime(os.path.join(feed_dir, name + ".txt"))
+        except OSError:
+            stale.append(name)  # never downloaded here
+            continue
+        if age >= every:
+            stale.append(name)
+    return stale
+
+
+def serve(every=REFRESH_EVERY, feed_dir=None, sleeper=time.sleep, forever=True):
+    """Keep the feeds current for as long as the supervisor keeps us alive.
+
+    Asking on a schedule rather than on demand is what lets a link be checked
+    without telling anyone which link it was. Restarts are cheap because the file
+    on disk decides what is due, so a container that bounces does not go back to
+    the sources for a copy it already has.
+    """
+    while True:
+        names = due(feed_dir, every)
+        if names:
+            for name, outcome in sorted(refresh(feed_dir, only=names).items()):
+                print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {name}: {outcome}", flush=True)
+        if not forever:
+            return
+        sleeper(min(every, POLL))
+
+
 def _self_test():
     import tempfile
 
@@ -160,6 +200,12 @@ def _self_test():
             handle.write("https://www.fake-bank.top/login/\n")
             for n in range(MAX_HOST_ENTRIES + 5):
                 handle.write(f"https://filelocker.example/files/{n}\n")
+
+        def backdated(seconds):
+            stamp = time.time() - seconds
+            for name in SOURCES:
+                os.utime(os.path.join(folder, name + ".txt"), (stamp, stamp))
+            return sorted(due(folder))
 
         feeds = load(folder)
         cases = [
@@ -186,6 +232,9 @@ def _self_test():
             ("missing feeds are not an error", load(os.path.join(folder, "nope")) == {}),
             ("a link is never sent anywhere to be checked",
              "urlopen" not in check.__code__.co_names),
+            ("a feed nobody has downloaded here is due", due(folder + "/nope") == list(SOURCES)),
+            ("a feed downloaded a minute ago is not due", due(folder, every=3600) == []),
+            ("a feed downloaded two hours ago is due", backdated(7200) == sorted(SOURCES)),
         ]
 
     for name, passed in cases:
@@ -199,6 +248,10 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if "--self-test" in args:
         sys.exit(_self_test())
+    every = int(args[args.index("--every") + 1]) if "--every" in args else REFRESH_EVERY
+    if "--serve" in args:
+        serve(every)
+        sys.exit(0)
     if "--refresh" in args:
         print(json.dumps(refresh(), indent=2))
         sys.exit(0)

@@ -151,7 +151,11 @@ def build(payload):
     # reply. A cold cache costs evidence, and evidence only ever adds caution.
     floor, report = floor_for(message, claims=payload.get("claims"), network=False)
     if SEVERITY[verdict] < SEVERITY[floor]:
-        found = ", ".join(dict.fromkeys(item["code"] for item in report["evidence"]))
+        # Weightless items are facts we noticed, not reasons the floor is where it
+        # is, and naming them here would pad the refusal with things that held
+        # nothing back.
+        found = ", ".join(dict.fromkeys(
+            item["code"] for item in report["evidence"] if item["weight"]))
         raise Refused(
             f"verdict: this message cannot go out as {verdict!r}. The text carries "
             f"{found}, which holds it at {floor!r} or stricter."

@@ -51,6 +51,27 @@ put to work. The same warning applies twice over: these lists know what was
 reported yesterday, so a page put up this morning is on none of them. A link
 nobody has listed is a link nobody has listed.
 
+If those lists are missing from the machine, or nobody has downloaded them in
+weeks, triage will not let a message carrying a link come back clean. It holds at
+Can't tell and reports `"blind": true`. That is not evidence against the sender.
+It means a check did not run, and clearing a link on the strength of a check that
+did not run is a lie by omission.
+
+## Triage reads the payment details
+
+A boleto carries the bank that issued it, the amount and the due date inside the
+number itself, so triage does the arithmetic instead of trusting the text around
+it. Two of those findings are not opinions. `boleto_bank_mismatch` means the
+message claims one bank and the boleto was drawn on another, which is one more
+reason to pass `--claims`. `boleto_charges_more_than_written` means the code
+charges more than any amount the message mentions. When either comes back, quote
+both numbers and say plainly that they do not match. You are not guessing there.
+
+Pix keys come back with their type, and the type is worth telling the person. A
+CPF, CNPJ, phone or email key all make the bank app show a name before the
+transfer is confirmed, so the action is to stop and read that name. A random key
+shows nothing, which is exactly why it is the one a stranger sends you.
+
 ## What triage cannot see
 
 It does not know whether this person even banks at Chase, whether they were
