@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import domain_age
 import link_check
+import reputation
 import scam_signals
 
 SEVERITY = {"No red flags found": 0, "Can't tell": 1, "Likely scam": 2, "Scam": 3}
@@ -33,7 +34,7 @@ CRITICAL_WEIGHT = 3
 STACKED_SCORE = 4
 
 
-def floor_for(text, claims=None, network=False, cache=None):
+def floor_for(text, claims=None, network=False, cache=None, feeds_override=None):
     """Return (floor verdict, evidence) for a message.
 
     claims is the company the message says it is from, when the model can name
@@ -47,6 +48,16 @@ def floor_for(text, claims=None, network=False, cache=None):
     if cache is None:
         cache = domain_age._load_cache() if links else {}
 
+    # Feeds are files on disk, so this costs nothing and works with no network.
+    # The gate can therefore run it too, at send time, with no cold start.
+    feeds = feeds_override if feeds_override is not None else (
+        reputation.load() if links else {})
+    listed = []
+    for link in links:
+        hit = reputation.check(link["url"], feeds)
+        if hit:
+            listed.append(dict(hit, url=link["url"]))
+
     ages = []
     for owner in dict.fromkeys(link["owner"] for link in links):
         entry = domain_age.lookup(owner, network=network, cache=cache)
@@ -54,7 +65,7 @@ def floor_for(text, claims=None, network=False, cache=None):
         if finding:
             ages.append(dict(finding, url=owner))
 
-    evidence = ages + [
+    evidence = listed + ages + [
         {"code": f["code"], "weight": f["weight"], "detail": f["detail"], "url": link["url"]}
         for link in links for f in link["findings"]
     ] + [
@@ -72,8 +83,10 @@ def floor_for(text, claims=None, network=False, cache=None):
     else:
         floor = "No red flags found"
 
+    stale = sorted(name for name, feed in feeds.items() if feed["stale"])
     return floor, {"links": links, "signals": signals, "evidence": evidence,
-                   "score": score, "critical": critical, "floor": floor}
+                   "score": score, "critical": critical, "floor": floor,
+                   "feeds": sorted(feeds), "stale_feeds": stale}
 
 
 def _self_test():
@@ -103,6 +116,16 @@ def _self_test():
          floor_for("veja em https://nova-loja.example/", cache={
              "nova-loja.example": {"domain": "nova-loja.example", "age_days": 4000,
                                    "bucket": "old", "checked": 9e9}})[0] == "No red flags found"),
+        ("a feed hit is enough on its own", (lambda: (
+            floor_for("clique em http://feedlisted.example/x",
+                      feeds_override={"test": {"kind": "phishing",
+                                               "urls": {"feedlisted.example/x"},
+                                               "hosts": {"feedlisted.example": 1},
+                                               "age_days": 0, "stale": False}})[0]
+            == "Likely scam"))()),
+        ("no feeds on disk is not a signal",
+         floor_for("clique em http://feedlisted.example/x",
+                   feeds_override={})[0] == "No red flags found"),
         ("an unanswered lookup adds nothing",
          floor_for("veja em https://nova-loja.example/", cache={})[0] == "No red flags found"),
         ("the floor never demands Scam",

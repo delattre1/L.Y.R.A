@@ -44,6 +44,13 @@ no brand knowledge at all. The lookup is allowed to fail and often will, on a sl
 network or a registry that does not answer. Silence there means no answer, which
 is not the same as an answer of no.
 
+Links are matched against downloaded lists of known malware and phishing
+addresses as well. A hit there is the strongest thing triage can tell you, and it
+is the only check that sees an ordinary old website that has been broken into and
+put to work. The same warning applies twice over: these lists know what was
+reported yesterday, so a page put up this morning is on none of them. A link
+nobody has listed is a link nobody has listed.
+
 ## What triage cannot see
 
 It does not know whether this person even banks at Chase, whether they were
