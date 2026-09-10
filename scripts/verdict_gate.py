@@ -2,41 +2,42 @@
 """The output contract for Lyra.
 
 Every reply Lyra sends about a suspicious message goes through here. The model
-proposes a verdict; this script decides whether that proposal is allowed out and
-renders the exact text to send. A prompt can be argued out of the safety
-asymmetry. A function cannot.
+proposes a verdict; this script decides whether it goes out, and renders the
+exact text to send. A prompt can be talked out of the asymmetry below; a
+function can't.
 
 Usage:
     echo '{"verdict": "Likely scam", ...}' | verdict_gate.py
     verdict_gate.py --self-test
 
-Reads one JSON object on stdin with these fields:
-    verdict     one of the four below, exact spelling
+Reads one JSON object on stdin:
+    verdict     one of the four below, spelled exactly
     reasoning   plain language, why this verdict
     next_action one concrete thing the person should do now
     teach_back  one sentence naming the pattern
 
-Exit 0 and prints the reply to send. Exit 2 and prints the refusal reason to
-stderr if the proposal breaks the contract; nothing is sent in that case.
+If the proposal holds up, it prints the reply and exits 0. If it doesn't, it
+prints the reason to stderr and exits 2, and the person gets no message at all.
 """
 
 import json
 import re
 import sys
 
-# Ordered most to least severe. "Safe" is not on this scale and never will be:
-# calling a scam legitimate costs someone their savings, the reverse costs them
-# one ignored email.
+# Ordered most to least severe. "Safe" is not on this scale: calling a scam
+# legitimate can cost someone their savings, while calling a real message a scam
+# costs them one ignored email.
 VERDICTS = ("Scam", "Likely scam", "Can't tell", "No red flags found")
 
 # Attached to anything short of an outright "Scam" verdict.
 CAUTION = (
-    "Whatever this turns out to be: never send money or a verification code "
-    "because a message asked you to. Nobody legitimate needs either one in a hurry."
+    "Either way, never send money or a verification code because a message asked "
+    "you to. If you can't check it yourself, by phone or in person, it can wait."
 )
 
-# Words that promise safety. Banned everywhere in the outgoing text, including
-# inside a "Scam" verdict, because the person reads the words and not the label.
+# Language that promises safety. Rejected anywhere in the outgoing text, even
+# under a "Scam" verdict, because people act on the sentences they read rather
+# than on the one-word label above them.
 FORBIDDEN = (
     r"\bsafe\b",
     r"\bit'?s fine\b",
@@ -55,7 +56,7 @@ MIN_TEACH_BACK = 10
 
 
 class Refused(Exception):
-    """The proposal does not meet the contract, so nothing goes out."""
+    """The proposal breaks the contract, so nothing gets sent."""
 
 
 def _text(payload, field, minimum):
@@ -69,7 +70,7 @@ def _text(payload, field, minimum):
 
 
 def build(payload):
-    """Return the reply text, or raise Refused."""
+    """Render the reply to send, or raise Refused."""
     verdict = payload.get("verdict")
     if verdict not in VERDICTS:
         raise Refused(
@@ -86,8 +87,9 @@ def build(payload):
     parts.append(teach_back)
     reply = "\n\n".join(parts)
 
-    # Check the rendered text, not the fields, so nothing sneaks in across a
-    # field boundary. CAUTION is ours and is exempt.
+    # Check the rendered text rather than each field on its own, so a banned
+    # phrase can't form across a field boundary. Our own caution line is exempt
+    # so that rewording it later can't trip the gate.
     checkable = reply.replace(CAUTION, "")
     for pattern in FORBIDDEN:
         hit = re.search(pattern, checkable, re.IGNORECASE)
