@@ -5,109 +5,95 @@ description: Decide whether a message someone forwarded is a scam, and reply thr
 
 # Checking a forwarded message
 
-Someone has sent you something they did not expect to receive and want to know
-whether to trust it. Read it, decide, and answer through the gate. If they tell you
-they have already paid or already handed over a code, stop and follow the
-post-compromise section of SOUL.md instead.
+Someone sent you something they did not expect to receive. Read it, run it
+through the checks, decide, and answer through the gate.
 
-## Pull these out of the message first
+If they tell you they have already paid or already handed over a code, stop here
+and follow the post-compromise section of SOUL.md instead.
 
-The sender, meaning the actual number or email address rather than the display
-name. Every link, in full. The brand or person being claimed. What the message
-wants: money, a code, a login, a tap, a callback. Any deadline it puts on you.
+## First, get the text
 
-Write those down before forming an opinion. Most of the judgment is in the gap
-between what the message claims to be and what those five things say it is.
+If it arrived as a screenshot or a photo, transcribe it. Every check downstream
+reads text, and so does the gate, which will refuse to send anything without it.
+Transcribe what is there, including the sender line and the link, and say in your
+reasoning if the picture cuts something off.
 
-## Reading the links
+## Then run triage
 
-Compare what a link says to where it goes. In a screenshot you often cannot see
-where it goes, so say so rather than guessing.
+```bash
+python3 /var/lib/hermes/scripts/triage.py <<'MSG'
+Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login
+MSG
+```
 
-A domain is what sits immediately left of the first single slash, read backwards
-from the last dot. In `bradesco.seguro-app.com/login`, the domain is `seguro-app.com`
-and Bradesco is decoration. Subdomains are free and anyone can put any brand there.
+You get back the links with what is wrong with each one, the wording signals with
+what each one means, a score, and a floor. The floor is the least cautious verdict
+this message can receive. Read it before you form an opinion, not after.
 
-Look for a lookalike spelling (`bradezco`, `nubbank`, `rn` standing in for `m`), a
-domain that has nothing to do with the brand, a shortener hiding the destination, a
-`xn--` prefix, which means the address contains characters that only look like Latin
-letters, and a country code that does not match the company.
+## What triage cannot see
 
-An address you cannot resolve is a reason for Can't tell, never for No red flags.
+It reads the text and nothing else. It does not know whether this person even
+banks at Bradesco, whether they were expecting a delivery, whether the sender is
+in their contacts, or what they told you three messages ago. It only knows the
+brands in its table and the wording in its patterns, so a well written scam with
+no link and no stock phrases comes back quiet.
 
-## The signals that decide it
-
-Urgency with a countdown. Real institutions do not give you ten minutes.
-
-An unusual payment method: gift cards, crypto, a Pix key belonging to a person
-rather than the company, a boleto that arrived by WhatsApp.
-
-Any request for a verification code. Codes exist to be typed into the app that sent
-them and nowhere else. Someone asking for one is trying to get into an account.
-
-A channel mismatch: the bank that texts from a mobile number, the government office
-that writes from Gmail, the delivery company charging a fee over WhatsApp.
-
-Contact details supplied inside the message itself. The phone number in a scam text
-reaches the scammer. This is why the answer to "my bank just called" is always to
-hang up and dial the number printed on the card.
-
-A relative asking for money from a new number. Ask them to call and confirm it is
-their voice, or to answer something only that person knows.
-
-Emotional setup: a prize, a debt, a package held at customs, a family emergency, a
-job offer that starts with a payment.
+That gap is your job. The floor is a minimum, never a target. If triage says
+Can't tell and you can see exactly how the money leaves, send Scam.
 
 ## Choosing the verdict
 
-Scam when you can name the mechanism and say how the money or the account leaves.
+Send Scam when you can name the mechanism: what the sender gets, and how. If you
+cannot finish the sentence "this works by...", you are not there yet.
 
-Likely scam when several signals stack up but you cannot confirm the mechanism.
+Send Likely scam when the evidence stacks up but the mechanism is a guess.
 
-Can't tell when you do not have enough to go on, including when the screenshot cuts
-off the link or the sender. This is the honest answer more often than it feels like,
-and it is always better than a wrong No red flags found.
+Send Can't tell when you do not have enough, including when a screenshot hides the
+link or the sender. It is the honest answer more often than it feels, and it beats
+a wrong No red flags found every time.
 
-No red flags found when you checked and nothing came back. It says what you did. It
-is not a promise that the message is genuine, and the gate attaches the standing
-caution to it for that reason.
-
-When two verdicts both seem defensible, take the more cautious one.
+Send No red flags found only when triage came back with nothing and nothing in the
+conversation worries you. It says what you did. It is not a promise.
 
 ## Sending the reply
-
-Build the payload and run the gate. Use a heredoc, because apostrophes in "Can't
-tell" will break a shell single-quoted string:
 
 ```bash
 python3 /var/lib/hermes/scripts/verdict_gate.py <<'JSON'
 {
+  "message": "Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login",
   "verdict": "Likely scam",
-  "reasoning": "The link says Bradesco but it goes to seguro-app.com, which is not a Bradesco address, and the message gives you ten minutes.",
-  "next_action": "Do not open it. If you want to check your account, open the bank app you already have on your phone.",
-  "teach_back": "Anything with a countdown on it is worth a second look, because the deadline exists to stop you checking."
+  "reasoning": "O link diz Bradesco, mas o endereço é seguro-app.top, que não pertence ao banco.",
+  "next_action": "Não abra. Se quiser conferir sua conta, use o aplicativo que já está no seu celular.",
+  "teach_back": "O prazo curto está ali para você não ter tempo de conferir."
 }
 JSON
 ```
 
+Use a heredoc. `echo '...'` breaks on the apostrophe in "Can't tell". The message
+goes in as one JSON string, so line breaks in the original become `\n`.
+
+Write the four fields in the language the person wrote to you in. The gate returns
+the finished reply and you send it exactly as printed, with nothing added,
+removed, or translated afterward.
+
+## The part that is easy to skip
+
 A chat turn reports the status of the turn, not the status of the script. Nothing
-tells you the gate failed unless you look. So after every run, copy the script's
-output and its exit status verbatim into your working notes before you do anything
-else. Until that is written down, the step is not finished and you have no reply to
-send.
+tells you a script failed unless you look. So after every run of triage or the
+gate, copy its output and its exit status verbatim into your notes before doing
+anything else. Until that is written down, the step is unfinished and you have no
+reply to send.
 
-Exit 0 means send stdout exactly as printed, with nothing added, removed, or
-translated afterward. If the person wrote in Portuguese, the four fields go into the
-payload in Portuguese.
+Exit 0 means send stdout as printed.
 
-Exit 2 means the gate refused. Stderr says why. Fix the payload and run it again.
-Never write the reply by hand after a refusal, and never soften a verdict to get it
-past the gate.
+Exit 2 means the gate refused, and stderr says why. If it refused on the floor, it
+lists the evidence it found in the text. Do not argue with it and never soften a
+verdict to get past it. Either raise your verdict, or fix your transcription if
+you got the message wrong.
 
-## Things that come back clean
+## Not everything is an attack
 
-Not everything forwarded to you is an attack. A verification code the person just
-requested themselves, ordinary marketing from a company they use, a real charge they
-forgot about. Say so with No red flags found, explain what you checked, and let the
-gate attach the caution. An agent that finds a scam every time is no more useful
-than one that never does.
+A code the person requested a minute ago, marketing from a shop they use, a real
+charge they forgot about. Say so, explain what you checked, and let the gate attach
+the caution. An agent that finds a scam every time is worth no more than one that
+never does.

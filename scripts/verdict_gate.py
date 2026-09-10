@@ -6,6 +6,10 @@ proposes a verdict; this script decides whether it goes out, and renders the
 exact text to send. A prompt can be talked out of the asymmetry below; a
 function can't.
 
+The gate runs the message through triage itself rather than believing what the
+proposal says about it. So the model can always be more careful than the
+evidence, and never less.
+
 Usage:
     echo '{"verdict": "Likely scam", ...}' | verdict_gate.py
     verdict_gate.py --self-test
@@ -15,14 +19,22 @@ Reads one JSON object on stdin:
     reasoning   plain language, why this verdict
     next_action one concrete thing the person should do now
     teach_back  one sentence naming the pattern
+    message     what the person forwarded, transcribed if it came as an image
+
+The message is read and dropped. It is never written anywhere.
 
 If the proposal holds up, it prints the reply and exits 0. If it doesn't, it
 prints the reason to stderr and exits 2, and the person gets no message at all.
 """
 
 import json
+import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from triage import SEVERITY, floor_for
 
 # Ordered most to least severe. "Safe" is not on this scale: calling a scam
 # legitimate can cost someone their savings, while calling a real message a scam
@@ -77,6 +89,21 @@ def build(payload):
             f"verdict: {verdict!r} is not one of {', '.join(VERDICTS)}"
         )
 
+    message = payload.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise Refused(
+            "message: missing. The gate checks the text itself, so it needs "
+            "what the person actually sent, transcribed if it arrived as a picture."
+        )
+
+    floor, report = floor_for(message)
+    if SEVERITY[verdict] < SEVERITY[floor]:
+        found = ", ".join(dict.fromkeys(item["code"] for item in report["evidence"]))
+        raise Refused(
+            f"verdict: this message cannot go out as {verdict!r}. The text carries "
+            f"{found}, which holds it at {floor!r} or stricter."
+        )
+
     reasoning = _text(payload, "reasoning", MIN_REASONING)
     next_action = _text(payload, "next_action", MIN_NEXT_ACTION)
     teach_back = _text(payload, "teach_back", MIN_TEACH_BACK)
@@ -101,6 +128,7 @@ def build(payload):
 
 def _self_test():
     ok = {
+        "message": "Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login",
         "verdict": "Likely scam",
         "reasoning": "The link goes to a lookalike domain registered four days ago.",
         "next_action": "Delete it, and check your account by typing the bank's address yourself.",
@@ -114,11 +142,26 @@ def _self_test():
     scam = dict(ok, verdict="Scam")
     cases.append(("no caution on Scam", CAUTION not in build(scam)))
 
-    clear = dict(ok, verdict="No red flags found")
+    clear = dict(ok, message="Oi filho, cheguei bem, te ligo amanha.",
+                 verdict="No red flags found")
     cases.append(("caution attached to clean verdict", CAUTION in build(clear)))
+
+    quiet = dict(ok, message="Oi filho, cheguei bem, te ligo amanha.",
+                 verdict="No red flags found")
+    cases.append(("quiet message may come back clean", bool(build(quiet))))
+    cases.append(("model may still escalate a quiet message",
+                  bool(build(dict(quiet, verdict="Scam")))))
 
     for name, bad in [
         ("rejects Safe", dict(ok, verdict="Safe")),
+        ("rejects a missing message", {k: v for k, v in ok.items() if k != "message"}),
+        ("rejects a clean verdict on a fake bank link",
+         dict(ok, verdict="No red flags found")),
+        ("rejects a clean verdict on a code request",
+         dict(ok, message="Me manda o codigo que chegou no seu SMS",
+              verdict="No red flags found")),
+        ("rejects Can't tell when the floor is higher",
+         dict(ok, verdict="Can't tell")),
         ("rejects lowercase verdict", dict(ok, verdict="scam")),
         ("rejects missing reasoning", {k: v for k, v in ok.items() if k != "reasoning"}),
         ("rejects stub next_action", dict(ok, next_action="ok")),
