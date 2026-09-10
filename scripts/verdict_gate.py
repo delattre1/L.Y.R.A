@@ -178,8 +178,11 @@ def build(payload):
 
     # Check the rendered text rather than each field on its own, so a banned
     # phrase can't form across a field boundary. Our own caution line is exempt
-    # so that rewording it later can't trip the gate.
+    # so that rewording it later can't trip the gate, and addresses are cut out
+    # before the scan: half the phishing domains aimed at Brazil have the word
+    # "seguro" in them, and quoting one is the opposite of reassurance.
     checkable = reply.replace(CAUTION[lang], "")
+    checkable = re.sub(r"\S+\.[a-z]{2,}(?:/\S*)?", " ", checkable, flags=re.IGNORECASE)
     for pattern in FORBIDDEN:
         hit = re.search(pattern, checkable, re.IGNORECASE)
         if hit:
@@ -218,6 +221,9 @@ def _self_test():
     cases.append(("portuguese caution on a portuguese reply", CAUTION["pt"] in pt_reply))
     cases.append(("portuguese label rendered", pt_reply.startswith("Isso é golpe")))
     cases.append(("portuguese action prefix", "O que fazer: " in pt_reply))
+    quoted = dict(pt, reasoning="O link diz Bradesco, mas o endereço é seguro-app.top, "
+                                "que não pertence ao banco.")
+    cases.append(("a domain containing seguro is not reassurance", bool(build(quoted))))
     cases.append(("no english leaks into a portuguese reply",
                   "What to do" not in pt_reply and CAUTION["en"] not in pt_reply))
 
@@ -256,6 +262,8 @@ def _self_test():
         ("rejects portuguese reassurance", dict(pt,
             teach_back="Mensagens assim normalmente são legítimas.")),
         ("rejects pode confiar", dict(pt, reasoning="O remetente é conhecido, pode confiar no link.")),
+        ("still rejects reassurance next to an address",
+         dict(pt, reasoning="O link vai para seguro-app.top e o site é seguro, pode abrir.")),
     ]:
         try:
             build(bad)
