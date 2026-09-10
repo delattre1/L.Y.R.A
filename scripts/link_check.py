@@ -24,8 +24,42 @@ MULTI_SUFFIXES = {
 }
 
 # Brand token to the domains that brand actually uses. A token found anywhere in
-# a URL whose owner is not on this list is someone borrowing the name.
+# a URL whose owner is not on this list is someone borrowing the name. Brazil and
+# the United States get equal weight here, because a scam text is written for the
+# country it is sent to and the same person may bank in both.
 BRANDS = {
+    # United States
+    "chase": {"chase.com"},
+    "bankofamerica": {"bankofamerica.com", "bofa.com"},
+    "wellsfargo": {"wellsfargo.com"},
+    "citibank": {"citi.com", "citibank.com"},
+    "capitalone": {"capitalone.com"},
+    "usaa": {"usaa.com"},
+    "navyfederal": {"navyfederal.org"},
+    "chime": {"chime.com"},
+    "zelle": {"zellepay.com"},
+    "venmo": {"venmo.com"},
+    "cashapp": {"cash.app", "squareup.com"},
+    "coinbase": {"coinbase.com"},
+    "usps": {"usps.com"},
+    "fedex": {"fedex.com"},
+    "irs": {"irs.gov"},
+    "ssa": {"ssa.gov"},
+    "medicare": {"medicare.gov"},
+    "walmart": {"walmart.com"},
+    "costco": {"costco.com"},
+    "bestbuy": {"bestbuy.com", "geeksquad.com"},
+    "verizon": {"verizon.com"},
+    "tmobile": {"t-mobile.com"},
+    "ezpass": {"e-zpass.com", "ezpassny.com", "ezpassva.com"},
+    "sunpass": {"sunpass.com"},
+    "norton": {"norton.com", "nortonlifelock.com"},
+    "mcafee": {"mcafee.com"},
+    "doordash": {"doordash.com"},
+    "geico": {"geico.com"},
+    "statefarm": {"statefarm.com"},
+
+    # Brazil
     "bradesco": {"bradesco.com.br"},
     "itau": {"itau.com.br", "iti.itau"},
     "nubank": {"nubank.com.br"},
@@ -54,7 +88,14 @@ BRANDS = {
     "binance": {"binance.com"},
     "vivo": {"vivo.com.br"},
     "claro": {"claro.com.br"},
+    "detran": {"gov.br"},
+    "enel": {"enel.com.br"},
+    "sabesp": {"sabesp.com.br"},
 }
+
+# Words that happen to contain a brand. Checked with letter boundaries, so
+# purchase.com is not Chase and pineapple.com is not Apple.
+BRAND_BOUNDARY = r"(?<![a-z0-9]){}(?![a-z0-9])"
 
 SHORTENERS = {
     "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "cutt.ly", "rebrand.ly",
@@ -189,12 +230,18 @@ def inspect(url):
                          "the real address is buried behind several fake ones"))
 
     owner_label = _fold(owner.split(".")[0])
+    # Two readings of the address: hyphens as separators, and hyphens removed.
+    # The first catches bradesco-seguro, the second catches bank-of-america.
+    split_form = re.sub(r"[-_]", ".", folded_url)
+    joined_form = re.sub(r"[-_]", "", folded_url)
+
     for brand, legitimate in BRANDS.items():
         if owner in legitimate:
             findings = [f for f in findings if f[0] not in ("cheap_tld", "deep_subdomains")]
             return _result(raw, host, owner, findings)
 
-        if brand in folded_url.replace("-", "").replace("_", ""):
+        bounded = re.compile(BRAND_BOUNDARY.format(re.escape(brand)))
+        if bounded.search(split_form) or bounded.search(joined_form):
             findings.append(("brand_mismatch",
                              f"says {brand} but the address belongs to {owner}"))
             if brand in owner_label and owner_label != brand:
@@ -202,7 +249,10 @@ def inspect(url):
                                  f"{owner} is a name built around {brand}, not {brand} itself"))
             break
 
-        if len(owner_label) > 3 and 0 < _edits(owner_label, brand) <= 2:
+        # A short name is one edit away from too many real words, so short
+        # brands only count as lookalikes on an exact near miss.
+        allowed = 1 if len(brand) <= 5 else 2
+        if len(owner_label) > 3 and 0 < _edits(owner_label, brand) <= allowed:
             findings.append(("lookalike_domain",
                              f"{owner} is one or two letters away from {brand}"))
             break
@@ -241,6 +291,14 @@ def _self_test():
         ("prices are not links", analyse("transferi R$ 4.500,00 hoje") == []),
         ("plain text is not a link", analyse("oi mae, tudo bem?") == []),
         ("hyphenated brand", "hyphenated_brand" in codes("http://bradesco-seguro.com/x")),
+        ("us bank lookalike", "brand_mismatch" in codes("http://chase.secure-login.top/")),
+        ("us bank with hyphens", "brand_mismatch" in codes("http://bank-of-america.verify.xyz")),
+        ("real us bank is clean", codes("https://secure.chase.com/web/auth") == set()),
+        ("usps toll text", "brand_mismatch" in codes("http://usps-delivery.icu/track")),
+        ("irs is a brand too", "brand_mismatch" in codes("http://irs-refund.top/claim")),
+        ("purchase is not chase", codes("https://purchase.example.com/cart") == set()),
+        ("pineapple is not apple", codes("https://pineapple.com") == set()),
+        ("zelle in the path", "brand_mismatch" in codes("http://pagar.online/zelle/verify")),
         ("real domain keeps its subdomains", codes("https://banco.bradesco.com.br/a/b") == set()),
     ]
     for name, passed in cases:

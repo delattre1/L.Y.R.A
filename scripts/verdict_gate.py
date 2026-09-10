@@ -20,6 +20,7 @@ Reads one JSON object on stdin:
     next_action one concrete thing the person should do now
     teach_back  one sentence naming the pattern
     message     what the person forwarded, transcribed if it came as an image
+    lang        "en" or "pt", matching the language the four fields are written in
 
 The message is read and dropped. It is never written anywhere.
 
@@ -41,15 +42,42 @@ from triage import SEVERITY, floor_for
 # costs them one ignored email.
 VERDICTS = ("Scam", "Likely scam", "Can't tell", "No red flags found")
 
+# The scale stays in English because it is the contract between the scripts. What
+# the person reads is a different question, answered here.
+LABELS = {
+    "en": {
+        "Scam": "This is a scam.",
+        "Likely scam": "This is very likely a scam.",
+        "Can't tell": "I can't tell from this.",
+        "No red flags found": "I checked and found no red flags.",
+    },
+    "pt": {
+        "Scam": "Isso é golpe.",
+        "Likely scam": "Isso é golpe, quase com certeza.",
+        "Can't tell": "Não dá para saber com o que você me mandou.",
+        "No red flags found": "Procurei e não achei nenhum sinal de golpe.",
+    },
+}
+
+ACTION = {"en": "What to do: ", "pt": "O que fazer: "}
+
 # Attached to anything short of an outright "Scam" verdict.
-CAUTION = (
-    "Either way, never send money or a verification code because a message asked "
-    "you to. If you can't check it yourself, by phone or in person, it can wait."
-)
+CAUTION = {
+    "en": (
+        "Either way, never send money or a verification code because a message asked "
+        "you to. If you can't check it yourself, by phone or in person, it can wait."
+    ),
+    "pt": (
+        "De qualquer forma, nunca envie dinheiro nem código de verificação porque uma "
+        "mensagem pediu. Se você não puder conferir sozinho, por telefone ou "
+        "pessoalmente, pode esperar."
+    ),
+}
 
 # Language that promises safety. Rejected anywhere in the outgoing text, even
 # under a "Scam" verdict, because people act on the sentences they read rather
-# than on the one-word label above them.
+# than on the one-word label above them. Both languages are checked every time:
+# an English reply has no business containing "pode confiar" either.
 FORBIDDEN = (
     r"\bsafe\b",
     r"\bit'?s fine\b",
@@ -60,7 +88,22 @@ FORBIDDEN = (
     r"\breal message\b",
     r"\btrustworthy\b",
     r"\bno risk\b",
+    r"\b(é|e|s[ãa]o|est[áa]|est[ãa]o) segur[oa]s?\b",
+    r"\bleg[íi]tim[oa]s?\b",
+    r"\bconfi[áa]ve(l|is)\b",
+    r"\bpode confiar\b",
+    r"\bn[ãa]o [ée] golpe\b",
+    r"\bsem risco\b",
+    r"\bfique tranquil[oa]\b",
+    r"\b[ée] verdadeir[oa]\b",
 )
+
+# Rough language check on what the model wrote, so a Portuguese reply cannot go
+# out wearing an English label. Frequency only, no library.
+MARKERS = {
+    "pt": r"\b(você|voce|não|nao|sua|seu|está|esta|uma|para|com|que|pelo|dinheiro|golpe|mensagem|senha|banco|nunca|ligue|conta)\b",
+    "en": r"\b(the|your|you|this|that|and|is|are|not|never|message|bank|money|scam|link|call|don't|number)\b",
+}
 
 MIN_REASONING = 20
 MIN_NEXT_ACTION = 10
@@ -89,6 +132,13 @@ def build(payload):
             f"verdict: {verdict!r} is not one of {', '.join(VERDICTS)}"
         )
 
+    lang = payload.get("lang")
+    if lang not in LABELS:
+        raise Refused(
+            f"lang: {lang!r} is not one of {', '.join(LABELS)}. Use the language the "
+            "person wrote to you in."
+        )
+
     message = payload.get("message")
     if not isinstance(message, str) or not message.strip():
         raise Refused(
@@ -108,45 +158,74 @@ def build(payload):
     next_action = _text(payload, "next_action", MIN_NEXT_ACTION)
     teach_back = _text(payload, "teach_back", MIN_TEACH_BACK)
 
-    parts = [verdict + ".", reasoning, "What to do: " + next_action]
+    written = " ".join([reasoning, next_action, teach_back]).lower()
+    counts = {code: len(re.findall(pattern, written)) for code, pattern in MARKERS.items()}
+    other = "pt" if lang == "en" else "en"
+    if counts[other] >= 3 and counts[other] > counts[lang]:
+        raise Refused(
+            f"lang: you said {lang!r} but the reply reads as {other!r}. The label and "
+            "the caution line are rendered in that language, so they would not match."
+        )
+
+    parts = [LABELS[lang][verdict], reasoning, ACTION[lang] + next_action]
     if verdict != "Scam":
-        parts.append(CAUTION)
+        parts.append(CAUTION[lang])
     parts.append(teach_back)
     reply = "\n\n".join(parts)
 
     # Check the rendered text rather than each field on its own, so a banned
     # phrase can't form across a field boundary. Our own caution line is exempt
     # so that rewording it later can't trip the gate.
-    checkable = reply.replace(CAUTION, "")
+    checkable = reply.replace(CAUTION[lang], "")
     for pattern in FORBIDDEN:
         hit = re.search(pattern, checkable, re.IGNORECASE)
         if hit:
-            raise Refused(f"reassuring language not allowed: {hit.group(0)!r}")
+            raise Refused(
+                f"reassuring language not allowed: {hit.group(0)!r}. Say what the "
+                "message does, not how safe it is."
+            )
 
     return reply
 
 
 def _self_test():
     ok = {
-        "message": "Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login",
+        "message": "Your account will be locked today. Confirm at http://chase.secure-login.top",
+        "lang": "en",
         "verdict": "Likely scam",
-        "reasoning": "The link goes to a lookalike domain registered four days ago.",
-        "next_action": "Delete it, and check your account by typing the bank's address yourself.",
-        "teach_back": "A brand-new domain wearing a familiar name is the tell.",
+        "reasoning": "The link says Chase but the address belongs to secure-login.top.",
+        "next_action": "Delete it, and check your account in the bank app you already have.",
+        "teach_back": "A deadline in a text is there to stop you checking.",
+    }
+    pt = {
+        "message": "Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top",
+        "lang": "pt",
+        "verdict": "Likely scam",
+        "reasoning": "O link diz Bradesco, mas o endereço pertence a seguro-app.top.",
+        "next_action": "Não abra nada. Confira sua conta pelo aplicativo do banco.",
+        "teach_back": "O prazo curto está ali para você não ter tempo de conferir.",
     }
     cases = []
 
     reply = build(ok)
-    cases.append(("caution attached below Scam", CAUTION in reply))
+    cases.append(("caution attached below Scam", CAUTION["en"] in reply))
+    cases.append(("english label rendered", reply.startswith("This is very likely")))
+
+    pt_reply = build(pt)
+    cases.append(("portuguese caution on a portuguese reply", CAUTION["pt"] in pt_reply))
+    cases.append(("portuguese label rendered", pt_reply.startswith("Isso é golpe")))
+    cases.append(("portuguese action prefix", "O que fazer: " in pt_reply))
+    cases.append(("no english leaks into a portuguese reply",
+                  "What to do" not in pt_reply and CAUTION["en"] not in pt_reply))
 
     scam = dict(ok, verdict="Scam")
-    cases.append(("no caution on Scam", CAUTION not in build(scam)))
+    cases.append(("no caution on Scam", CAUTION["en"] not in build(scam)))
 
-    clear = dict(ok, message="Oi filho, cheguei bem, te ligo amanha.",
+    clear = dict(ok, message="Hey, running late, be there at 7.",
                  verdict="No red flags found")
-    cases.append(("caution attached to clean verdict", CAUTION in build(clear)))
+    cases.append(("caution attached to clean verdict", CAUTION["en"] in build(clear)))
 
-    quiet = dict(ok, message="Oi filho, cheguei bem, te ligo amanha.",
+    quiet = dict(ok, message="Hey, running late, be there at 7.",
                  verdict="No red flags found")
     cases.append(("quiet message may come back clean", bool(build(quiet))))
     cases.append(("model may still escalate a quiet message",
@@ -167,6 +246,13 @@ def _self_test():
         ("rejects stub next_action", dict(ok, next_action="ok")),
         ("rejects reassurance", dict(ok, reasoning="This one is safe to open, no red flags at all.")),
         ("rejects reassurance in teach_back", dict(ok, teach_back="Messages like this are usually legitimate.")),
+        ("rejects a missing lang", {k: v for k, v in ok.items() if k != "lang"}),
+        ("rejects an unknown lang", dict(ok, lang="es")),
+        ("rejects portuguese prose labelled english", dict(ok, **{k: pt[k] for k in
+            ("reasoning", "next_action", "teach_back")})),
+        ("rejects portuguese reassurance", dict(pt,
+            teach_back="Mensagens assim normalmente são legítimas.")),
+        ("rejects pode confiar", dict(pt, reasoning="O remetente é conhecido, pode confiar no link.")),
     ]:
         try:
             build(bad)

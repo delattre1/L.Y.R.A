@@ -1,6 +1,6 @@
 ---
 name: scam-check
-description: Decide whether a message someone forwarded is a scam, and reply through the verdict gate. Use when a person sends a screenshot, a pasted text, an email, or a link and asks if it is real, or says a bank, a delivery company, or a relative contacted them out of nowhere.
+description: Decide whether a message someone forwarded is a scam, and reply through the verdict gate. Use when a person sends a screenshot, a pasted text, an email, or a link and asks if it is real, or says a bank, a delivery company, a toll agency, a tax office, or a relative contacted them out of nowhere. Works in English and Portuguese, for people in the United States and in Brazil.
 ---
 
 # Checking a forwarded message
@@ -9,7 +9,9 @@ Someone sent you something they did not expect to receive. Read it, run it
 through the checks, decide, and answer through the gate.
 
 If they tell you they have already paid or already handed over a code, stop here
-and follow the post-compromise section of SOUL.md instead.
+and follow the post-compromise section of SOUL.md instead. That path runs
+`recovery_steps.py`, which needs to know the country, so ask which one if the
+conversation has not already told you.
 
 ## First, get the text
 
@@ -33,10 +35,15 @@ this message can receive. Read it before you form an opinion, not after.
 ## What triage cannot see
 
 It reads the text and nothing else. It does not know whether this person even
-banks at Bradesco, whether they were expecting a delivery, whether the sender is
-in their contacts, or what they told you three messages ago. It only knows the
-brands in its table and the wording in its patterns, so a well written scam with
-no link and no stock phrases comes back quiet.
+banks at Chase, whether they were expecting a delivery, whether the sender is in
+their contacts, or what they told you three messages ago. It only knows the brands
+in its table and the wording in its patterns, so a well written scam with no link
+and no stock phrases comes back quiet.
+
+The table covers the big Brazilian and American names and the usual wording in
+Portuguese and English. A regional credit union, a state agency, a small local
+shop, or a scam written in careful prose will not be in there. Quiet output means
+the checks found nothing, and nothing else.
 
 That gap is your job. The floor is a minimum, never a target. If triage says
 Can't tell and you can see exactly how the money leaves, send Scam.
@@ -61,6 +68,7 @@ conversation worries you. It says what you did. It is not a promise.
 python3 /var/lib/hermes/scripts/verdict_gate.py <<'JSON'
 {
   "message": "Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login",
+  "lang": "pt",
   "verdict": "Likely scam",
   "reasoning": "O link diz Bradesco, mas o endereço é seguro-app.top, que não pertence ao banco.",
   "next_action": "Não abra. Se quiser conferir sua conta, use o aplicativo que já está no seu celular.",
@@ -72,9 +80,14 @@ JSON
 Use a heredoc. `echo '...'` breaks on the apostrophe in "Can't tell". The message
 goes in as one JSON string, so line breaks in the original become `\n`.
 
-Write the four fields in the language the person wrote to you in. The gate returns
-the finished reply and you send it exactly as printed, with nothing added,
-removed, or translated afterward.
+The verdict is always one of the four English names, because that is the scale the
+scripts share. Everything the person reads is not: write the other three fields in
+their language and set `lang` to `en` or `pt` to match. The gate renders the
+verdict line, the "what to do" prefix, and the caution in that language, and it
+refuses if `lang` disagrees with the prose you wrote.
+
+The gate returns the finished reply and you send it exactly as printed, with
+nothing added, removed, or translated afterward.
 
 ## The part that is easy to skip
 
@@ -94,6 +107,6 @@ you got the message wrong.
 ## Not everything is an attack
 
 A code the person requested a minute ago, marketing from a shop they use, a real
-charge they forgot about. Say so, explain what you checked, and let the gate attach
+delivery notice, a charge they forgot about. Say so, explain what you checked, and let the gate attach
 the caution. An agent that finds a scam every time is worth no more than one that
 never does.
