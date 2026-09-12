@@ -2,13 +2,9 @@
 # leaderboard reporter.
 services:
   agent:
-    build:
-      context: .
-      args:
-        # Set in .env beside this file. Required, and the error says so, because
-        # the alternative is a build that guesses a tag and fails at pull time
-        # with a message about none of this.
-        BASE_IMAGE: ${BASE_IMAGE:?set BASE_IMAGE in .env, see README step 1}
+    # The base image is pinned in the Dockerfile, which is the one place it
+    # lives. To build against another: docker compose build --build-arg BASE_IMAGE=...
+    build: .
     environment:
       # The ID registered once with agent_index_client.py --register.
       AGENT_ID: lyra

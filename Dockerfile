@@ -1,46 +1,59 @@
 # Lyra, built on the Plow hermes base.
 #
-# Three things land in three different ways, because the base treats them
-# differently and the difference decides what a rebuild picks up.
+# Pinned to an immutable tag, as the base asks. There is no `latest`: one tag per
+# commit of plow-hermes-agent, `base-` plus the full 40-character SHA. To move
+# it, list what is published and take the newest that your checkout also has:
 #
-#   SOUL.md   seeded into the home volume on FIRST boot only, by seed_one in
-#             stage2-hook.sh. Editing it needs `docker compose down -v`.
-#   skills/   synced out of the image into the home on EVERY boot, so a rebuild
-#             is enough.
-#   scripts/  the base has no mechanism for these, so they live outside the
-#             volume and a cont-init.d drops them into place on every boot. A
-#             rebuild is enough, which is what you want for code.
+#   token=$(curl -fsSL 'https://public.ecr.aws/token/?service=public.ecr.aws&scope=repository:e1h7x4a2/plow-cloud-agents:pull' \
+#     | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+#   curl -fsSL -H "Authorization: Bearer $token" \
+#     https://public.ecr.aws/v2/e1h7x4a2/plow-cloud-agents/tags/list
 #
-# The base image reference is the one thing here that is not verified. Take it
-# from the plow-hermes-agent README and pass it in, or edit the default:
-#   docker compose build --build-arg BASE_IMAGE=<the published base>
-# If the pull 403s on stale credentials, `docker logout public.ecr.aws` first.
-ARG BASE_IMAGE=public.ecr.aws/plow/plow-hermes-agent:SET-THIS-FROM-THE-BASE-README
+# A 403 on pull is stale registry credentials, not the tag: docker logout
+# public.ecr.aws, then build again.
+ARG BASE_IMAGE=public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-8710797b6409c77df560c6198407765d138ea617
 FROM ${BASE_IMAGE}
 
-# Readable by the hermes user, because stage2-hook copies it as that user.
-COPY --chmod=0644 SOUL.md /opt/hermes/docker/SOUL.md
+# No COPY --chmod anywhere in this file. It is BuildKit-only, and a stock Docker
+# still selects the legacy builder, where it fails the build outright. The base
+# says so and does the mode in its own step; so do we.
 
-# skills_sync.py reads this tree on every container start.
-COPY --chmod=0644 skills/ /opt/hermes/skills/
+# Identity. plow-init composes the home's SOUL.md on every boot as the base
+# persona followed by this file, so this is an addition to a persona rather than
+# a whole one, and nothing here writes /var/lib/hermes/SOUL.md directly: that
+# path is overwritten at boot.
+COPY --chown=0:0 SOUL.md /opt/hermes/plow-seed/persona.md
+RUN chmod 0644 /opt/hermes/plow-seed/persona.md
 
-# The checks themselves. SKILL.md calls them by absolute path under the home,
-# and 03-lyra-scripts is what puts them there.
-COPY --chmod=0755 scripts/ /opt/lyra/scripts/
-COPY --chmod=0755 tests/ /opt/lyra/tests/
+# Both copies, as the base image does with its own. The second is what a home
+# that starts empty is seeded from and what later image updates reach; it is a
+# source and not a backup, so a skill the agent deleted stays deleted.
+COPY --chown=10000:10000 skills/ /var/lib/hermes/skills/
+COPY --chown=10000:10000 skills/ /opt/hermes/skills/
+
+# The checks. SKILL.md calls them by absolute path under the home, and
+# 03-lyra-scripts is what puts them there on every boot, which is the behaviour
+# code wants: a rebuild reaches them without destroying the agent's sessions.
+COPY --chown=0:0 scripts/ /opt/lyra/scripts/
+COPY --chown=0:0 tests/ /opt/lyra/tests/
+
+# The leaderboard reporter's client, pinned to the commit the plow-agents README
+# names. Registering the id is a one-off from the host; see the README.
+ADD https://raw.githubusercontent.com/plow-pbc/agent-index-client/f900ff144076f0a766584b6ec4d0993600779b16/standalone/agent_index_client.py /opt/lyra/agent_index_client.py
+
+COPY --chown=0:0 image/cont-init.d/ /etc/cont-init.d/
+COPY --chown=0:0 image/s6-overlay/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
+
+# Modes in their own step, and named rather than globbed: a glob would also
+# restat the base's own services and would pass silently if one of ours failed
+# to copy.
+RUN chmod -R 0755 /opt/lyra/scripts /opt/lyra/tests \
+ && chmod 0644 /opt/lyra/agent_index_client.py \
+ && chmod 0755 /etc/cont-init.d/03-lyra-scripts \
+                /etc/s6-overlay/s6-rc.d/feed-refresh/run \
+                /etc/s6-overlay/s6-rc.d/agent-index/run \
+                /etc/s6-overlay/s6-rc.d/agent-index/finish
 
 # Feed downloads and the domain age cache belong on the volume, so a restart
 # does not go back to the sources for a copy we already have.
 ENV LYRA_STATE=/var/lib/hermes/lyra
-
-# The leaderboard reporter's client, pinned to the commit the plow-agents README
-# names. Registering is a one-off you run from the host; see the README.
-ADD --chmod=0644 https://raw.githubusercontent.com/plow-pbc/agent-index-client/f900ff144076f0a766584b6ec4d0993600779b16/standalone/agent_index_client.py /opt/lyra/agent_index_client.py
-
-COPY --chmod=0755 image/cont-init.d/ /etc/cont-init.d/
-COPY image/s6-overlay/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
-# Named rather than globbed: a glob here would also restat the base's own
-# services, and would go through silently if one of ours failed to copy.
-RUN chmod 0755 /etc/s6-overlay/s6-rc.d/feed-refresh/run \
-               /etc/s6-overlay/s6-rc.d/agent-index/run \
-               /etc/s6-overlay/s6-rc.d/agent-index/finish

@@ -10,26 +10,32 @@ gates decide whether they go out.
 
 ## Getting her running
 
-Seven steps. Step 1 is the only one that needs anything looked up.
+Seven steps, and the first is reading rather than doing.
 
-### 1. Find the base image
+### 1. Know what the pin is
 
-Lyra builds on the Plow hermes base, and the published reference for it lives in
-that project's README, under building a variant image:
+The base image is already pinned in the Dockerfile, to an immutable tag:
 
-```bash
-git clone https://github.com/plow-pbc/plow-hermes-agent.git /tmp/plow-base
-grep -rn "public.ecr.aws" /tmp/plow-base/README.md /tmp/plow-base/Dockerfile
+```
+public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-8710797b6409c77df560c6198407765d138ea617
 ```
 
-Write what that gives you into a `.env` beside this file:
+There is no `latest` in that repository, by design: one tag per commit of
+plow-hermes-agent, `base-` plus the full 40-character SHA. Not every commit has
+one, so moving the pin means taking the newest tag that is actually published:
 
 ```bash
-echo 'BASE_IMAGE=<the reference you just found>' > .env
+token=$(curl -fsSL 'https://public.ecr.aws/token/?service=public.ecr.aws&scope=repository:e1h7x4a2/plow-cloud-agents:pull' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -fsSL -H "Authorization: Bearer $token" \
+  https://public.ecr.aws/v2/e1h7x4a2/plow-cloud-agents/tags/list
 ```
 
-If the pull later returns 403, it is stale registry credentials rather than the
-reference: `docker logout public.ecr.aws` and build again.
+Then edit `ARG BASE_IMAGE` at the top of the Dockerfile, or build once against
+another with `docker compose build --build-arg BASE_IMAGE=...`.
+
+A 403 on the pull is stale registry credentials rather than a wrong tag:
+`docker logout public.ecr.aws`, then build again.
 
 ### 2. Get a Plow line
 
@@ -66,7 +72,7 @@ docker compose logs -f agent
 The first build takes a few minutes. Wait for a line reading
 `plow-init: configured ... as cht_`, then text the line you minted.
 
-If the build stops with `set BASE_IMAGE in .env`, step 1 has not happened.
+If the pull fails, step 1 has what to check.
 
 ### 5. Check she is actually working
 
@@ -130,12 +136,20 @@ after an edit:
 | --- | --- |
 | `scripts/` | `docker compose up --build -d` |
 | `skills/` | `docker compose up --build -d` |
-| `SOUL.md` | `docker compose down -v` first, which also wipes her sessions |
+| `SOUL.md` | `docker compose up --build -d`, probably |
 
-`SOUL.md` is seeded into the home volume only when nothing is there yet, so a
-rebuild alone will not reach it. The scripts sidestep that: they are installed
-outside the volume and copied into place on every boot, so code reloads on a
-rebuild like code should.
+`SOUL.md` is the uncertain one, and the two upstream READMEs disagree. The base
+says `plow-init` composes the home's SOUL.md on every boot out of
+`/opt/hermes/plow-seed`, which would mean a rebuild reaches it. The plow-agents
+README says an edit needs `docker compose down -v`. Try the rebuild; if the
+change does not show up, `down -v`, which also wipes her sessions.
+
+What she actually runs is the base persona followed by our `SOUL.md`, so it
+reads as an addition to an identity rather than the whole of one.
+
+The scripts sidestep the question entirely: they are installed outside the
+volume and copied into place on every boot, so code reloads on a rebuild like
+code should.
 
 When you are done with the line entirely:
 
