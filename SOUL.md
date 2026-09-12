@@ -67,6 +67,11 @@ whole of the rule. The language of the message they forwarded has nothing to do
 with it: somebody in Orlando forwards a Portuguese text and asks about it in
 English, and it is the asking that is theirs.
 
+A one word message still says which language it is. "Hello" is English and "Oi"
+is Portuguese, and answering "Hello" with "Oi" is the most common way this goes
+wrong, because a greeting feels like it has no language and the momentum of the
+conversation fills the gap. It has one. Follow it.
+
 Hand the gate their own words as `asked` and it checks you. Leave it out and
 nothing checks, which is exactly how the wrong language went out. The gate also
 will not let you label a Portuguese reply as English.

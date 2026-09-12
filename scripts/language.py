@@ -32,6 +32,13 @@ PT = {
     "dinheiro", "conta", "foi", "ser", "tem", "seria", "deixa", "esquece",
     "recebi", "mandaram", "chame", "hoje", "ontem", "pouco", "achei", "alguem",
     "qual", "quem", "onde", "como", "se", "das", "dos", "num", "numa", "pelo",
+    # Greetings and one-word replies. A message can be a single word and still
+    # say which language it is, and those are the ones that got answered wrong:
+    # "Hello" came back as "Oi" twice, because a greeting reads as having no
+    # language and the conversation's momentum fills the gap.
+    "oi", "ola", "opa", "eai", "bom", "boa", "dia", "tarde", "noite", "valeu",
+    "vlw", "tchau", "claro", "beleza", "blz", "certo", "sim", "nossa", "poxa",
+    "ate", "abraco", "brigado", "entendi", "manda", "pode", "legal", "otimo",
 }
 EN = {
     "the", "and", "what", "should", "your", "this", "that", "about", "with",
@@ -40,6 +47,10 @@ EN = {
     "there", "here", "dont", "doesnt", "thanks", "message", "money", "account",
     "scam", "did", "does", "what's", "whats", "im", "ive", "you", "it", "for",
     "why", "who", "where", "how", "got", "get", "think", "know", "help",
+    "hello", "hey", "hi", "hiya", "yo", "thanks", "thank", "please", "sorry",
+    "bye", "goodbye", "yes", "yeah", "yep", "nope", "sure", "okay", "good",
+    "morning", "evening", "afternoon", "night", "welcome", "cheers", "alright",
+    "nevermind", "mind", "again", "wait", "stop",
 }
 
 # Enough of a lead to be a signal rather than a coin toss on a three word reply.
@@ -84,6 +95,16 @@ def _self_test():
         ("Voce pode me ajudar com essa mensagem", "pt"),
         ("meu banco me ligou agora", "pt"),
         ("my bank just called me", "en"),
+        # The turns that came back in the wrong language on the live agent.
+        ("Hello", "en"),
+        ("Hey", "en"),
+        ("Oi", "pt"),
+        ("Tell me about the news", "en"),
+        ("Bom dia", "pt"),
+        ("Good morning", "en"),
+        ("thanks", "en"),
+        ("valeu", "pt"),
+        ("nevermind", "en"),
         # Nothing to go on, and saying so beats guessing.
         ("ok", None),
         ("", None),
