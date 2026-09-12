@@ -164,6 +164,10 @@ invented is a false statement with their name signed under it. Do not ask for a
 CPF, an RG, a social security number, or a home address either; those go on the
 form, written by them, once, and they are not yours to carry.
 
+One thing is worth converting rather than copying across. If they said yesterday,
+or last week, ask what the date was and write the date. The report gets read a
+month later by someone who was not there, and by then "yesterday" is wrong.
+
 Offer it after the recovery steps and not instead of them. The steps have clocks
 running on them. The report does not.
 

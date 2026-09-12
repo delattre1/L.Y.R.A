@@ -78,8 +78,10 @@ HEAD = {
 }
 
 ASK = {
-    "when": {"pt": "a data e a hora aproximada em que aconteceu",
-             "en": "the date and approximate time it happened"},
+    "when": {"pt": "a data e a hora aproximada, escrita como data e não como ontem "
+                   "ou semana passada",
+             "en": "the date and approximate time, written as a date rather than as "
+                   "yesterday or last week"},
     "channel": {"pt": "por onde chegou: WhatsApp, SMS, e-mail, ligação, rede social, "
                       "e de qual número ou endereço",
                 "en": "the app, number, or address it came through: text, email, "
@@ -88,18 +90,39 @@ ASK = {
               "en": "describe what happened, in the order it happened"},
     "contact": {"pt": "telefone, e-mail ou perfil usado por quem entrou em contato",
                 "en": "phone, email, or profile the other party used"},
-    "instrument": {"pt": "para onde o dinheiro foi: chave Pix, conta, código de barras, carteira",
-                   "en": "where the money went: account, routing number, key, barcode, wallet"},
     "amount": {"pt": "o valor perdido", "en": "the amount lost"},
-    "method": {"pt": "como o pagamento saiu: Pix, boleto, cartão, transferência, "
-                     "cartão-presente, criptomoeda",
-               "en": "how it was paid: wire, Zelle, card, gift card, cryptocurrency"},
     "actions": {"pt": "o que você já fez: ligou para o banco, contestou, bloqueou o cartão",
                 "en": "what you have already done: called the bank, disputed it, froze the card"},
     "attachments": {"pt": "o que você tem guardado: prints da conversa, comprovante, "
                           "extrato, e-mail original",
                     "en": "what you kept: screenshots of the conversation, the receipt, "
                           "the statement, the original email"},
+}
+
+# Language is not country. These two ask about the instrument the money moved
+# through, and which instruments exist is decided by where the person banks, not
+# by which language they read.
+ASK_BY_COUNTRY = {
+    "instrument": {
+        "br": {"pt": "para onde o dinheiro foi: chave Pix, agência e conta, o código de "
+                     "barras do boleto, carteira de criptomoeda",
+               "en": "where the money went: the Pix key, branch and account number, the "
+                     "boleto barcode, crypto wallet"},
+        "us": {"pt": "para onde o dinheiro foi: conta e routing number, o telefone ou "
+                     "e-mail do Zelle, carteira de criptomoeda",
+               "en": "where the money went: account and routing number, the Zelle phone "
+                     "or email, crypto wallet"},
+    },
+    "method": {
+        "br": {"pt": "como o pagamento saiu: Pix, boleto, cartão, TED, cartão-presente, "
+                     "criptomoeda",
+               "en": "how it was paid: Pix, boleto, card, TED transfer, gift card, "
+                     "cryptocurrency"},
+        "us": {"pt": "como o pagamento saiu: transferência bancária, Zelle, Venmo, Cash "
+                     "App, cartão, cartão-presente, criptomoeda",
+               "en": "how it was paid: wire, Zelle, Venmo, Cash App, card, gift card, "
+                     "cryptocurrency"},
+    },
 }
 
 LABEL = {
@@ -150,8 +173,9 @@ def _given(facts, key):
     return None
 
 
-def _or_blank(facts, key, lang):
-    return _given(facts, key) or f"[{FILL[lang]}: {ASK[key][lang]}]"
+def _or_blank(facts, key, lang, country):
+    asked = ASK_BY_COUNTRY[key][country] if key in ASK_BY_COUNTRY else ASK[key]
+    return _given(facts, key) or f"[{FILL[lang]}: {asked[lang]}]"
 
 
 def _evidence_lines(facts):
@@ -180,20 +204,20 @@ def build(country, facts, lang=None):
     parts.append("")
 
     for key in ("when", "channel", "story"):
-        parts += [HEAD[key][lang], _or_blank(facts, key, lang), ""]
+        parts += [HEAD[key][lang], _or_blank(facts, key, lang, country), ""]
 
     parts.append(HEAD["suspect"][lang])
     for key in ("contact", "instrument"):
-        parts.append(f"{LABEL[key][lang]}: {_or_blank(facts, key, lang)}")
+        parts.append(f"{LABEL[key][lang]}: {_or_blank(facts, key, lang, country)}")
     parts.append("")
 
     parts.append(HEAD["loss"][lang])
     for key in ("amount", "method"):
-        parts.append(f"{LABEL[key][lang]}: {_or_blank(facts, key, lang)}")
+        parts.append(f"{LABEL[key][lang]}: {_or_blank(facts, key, lang, country)}")
     parts.append("")
 
     for key in ("actions", "attachments"):
-        parts += [HEAD[key][lang], _or_blank(facts, key, lang), ""]
+        parts += [HEAD[key][lang], _or_blank(facts, key, lang, country), ""]
 
     lines = _evidence_lines(facts)
     if lines:
@@ -257,6 +281,17 @@ def _self_test():
          not any(word in (br + us).lower() for word in
                  ("estelionato", "artigo", "art.", "código penal", "u.s.c", "felony"))),
         ("the person is told to read it before signing", "antes de enviar" in br),
+        ("a report filed in the united states never asks about pix",
+         "Pix" not in build("us", {}, lang="pt") and "boleto" not in build("us", {}, lang="pt")),
+        ("a report filed in brazil never asks about zelle",
+         "Zelle" not in build("br", {}, lang="en")
+         and "routing" not in build("br", {}, lang="en")),
+        ("the brazilian form asks for the pix key in english too",
+         "Pix key" in build("br", {}, lang="en")),
+        ("the american form asks for the routing number in portuguese too",
+         "routing number" in build("us", {}, lang="pt")),
+        ("the date is asked for as a date, not as yesterday",
+         "yesterday" in build("us", {}) and "ontem" in build("br", {})),
         ("an unknown country is refused", _raises(lambda: build("xx", {}))),
     ]
     for name, passed in cases:
