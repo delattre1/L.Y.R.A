@@ -39,4 +39,8 @@ ADD --chmod=0644 https://raw.githubusercontent.com/plow-pbc/agent-index-client/f
 
 COPY --chmod=0755 image/cont-init.d/ /etc/cont-init.d/
 COPY image/s6-overlay/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
-RUN chmod 0755 /etc/s6-overlay/s6-rc.d/*/run
+# Named rather than globbed: a glob here would also restat the base's own
+# services, and would go through silently if one of ours failed to copy.
+RUN chmod 0755 /etc/s6-overlay/s6-rc.d/feed-refresh/run \
+               /etc/s6-overlay/s6-rc.d/agent-index/run \
+               /etc/s6-overlay/s6-rc.d/agent-index/finish

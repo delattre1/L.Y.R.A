@@ -1,0 +1,47 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Report token usage to the Agent Index, which is what puts Lyra on the board.
+#
+# The client measures token counts and sends those and nothing else. It reports
+# once and exits, so the cadence is ours, and it exits non-zero on purpose when
+# a collector fails rather than posting a partial total that would overwrite
+# correct numbers with smaller ones. Exec'ing it directly would therefore hand
+# s6 a tight restart loop on the first bad network minute, so the loop and the
+# waiting are here.
+#
+# Registering the agent id is a separate one-off you run from the host; see the
+# plow-agents README. This service only reports.
+set -u
+
+# No id means this install is not on the leaderboard. Exit clean and let the
+# finish script park the slot, the way the base's dashboard service does.
+[ -n "${AGENT_ID:-}" ] || exit 0
+
+# with-contenv repopulates HOME as /root. The client keeps the key it was
+# issued under HOME, so this has to point at the volume or the install
+# re-registers itself every restart.
+export HOME="${HERMES_HOME:-/var/lib/hermes}"
+
+# PLOW_API_BASE and PLOW_AGENT_TOKEN come out of the credential mint wrote.
+# Never hardcode the API base: it is whatever is in that file.
+for creds in /var/lib/plow/credentials /var/lib/plow/credentials.host; do
+    if [ -r "$creds" ]; then
+        set -a
+        # shellcheck disable=SC1090
+        . "$creds"
+        set +a
+        break
+    fi
+done
+
+PY=/opt/hermes/.venv/bin/python
+[ -x "$PY" ] || PY=$(command -v python3)
+
+while :; do
+    if [ "$(id -u)" = 0 ]; then
+        s6-setuidgid hermes "$PY" /opt/lyra/agent_index_client.py
+    else
+        "$PY" /opt/lyra/agent_index_client.py
+    fi || echo "[agent-index] nothing reported this round; trying again in an hour"
+    sleep 3600
+done

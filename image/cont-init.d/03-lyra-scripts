@@ -16,12 +16,14 @@ HERMES_HOME="${HERMES_HOME:-/var/lib/hermes}"
 LYRA_STATE="${LYRA_STATE:-$HERMES_HOME/lyra}"
 
 rm -rf "$HERMES_HOME/scripts"
-mkdir -p "$HERMES_HOME/scripts" "$LYRA_STATE" "$LYRA_STATE/feeds"
+mkdir -p "$HERMES_HOME/scripts" "$LYRA_STATE" "$LYRA_STATE/feeds" \
+    "$HERMES_HOME/.agent-index"
 cp /opt/lyra/scripts/*.py "$HERMES_HOME/scripts/"
 chmod 0755 "$HERMES_HOME/scripts"/*.py
 
 # The scripts run as the hermes user, and the state directory is written to.
-chown -R hermes:hermes "$HERMES_HOME/scripts" "$LYRA_STATE" 2>/dev/null \
+chown -R hermes:hermes "$HERMES_HOME/scripts" "$LYRA_STATE" \
+    "$HERMES_HOME/.agent-index" 2>/dev/null \
     || echo "[lyra] Warning: chown failed (rootless container?) — continuing"
 
 echo "[lyra] $(ls -1 "$HERMES_HOME/scripts"/*.py | wc -l) checks in place at $HERMES_HOME/scripts"
