@@ -1,0 +1,27 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Put the checks where SKILL.md says they are, on every boot.
+#
+# /var/lib/hermes is a named volume, so anything the image writes there is only
+# seen the first time it is created. The base solves that for SOUL.md by seeding
+# once and for skills by syncing every boot; it has no opinion about a scripts
+# directory. Copying from outside the volume on each start gives code the
+# behaviour code wants: a rebuild takes effect, with no `down -v` and no stale
+# module left behind by a rename.
+#
+# Runs after 01-hermes-setup has created and chowned the home.
+set -eu
+
+HERMES_HOME="${HERMES_HOME:-/var/lib/hermes}"
+LYRA_STATE="${LYRA_STATE:-$HERMES_HOME/lyra}"
+
+rm -rf "$HERMES_HOME/scripts"
+mkdir -p "$HERMES_HOME/scripts" "$LYRA_STATE" "$LYRA_STATE/feeds"
+cp /opt/lyra/scripts/*.py "$HERMES_HOME/scripts/"
+chmod 0755 "$HERMES_HOME/scripts"/*.py
+
+# The scripts run as the hermes user, and the state directory is written to.
+chown -R hermes:hermes "$HERMES_HOME/scripts" "$LYRA_STATE" 2>/dev/null \
+    || echo "[lyra] Warning: chown failed (rootless container?) — continuing"
+
+echo "[lyra] $(ls -1 "$HERMES_HOME/scripts"/*.py | wc -l) checks in place at $HERMES_HOME/scripts"

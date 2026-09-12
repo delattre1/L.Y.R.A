@@ -1,0 +1,20 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Keep the malware and phishing feeds current.
+#
+# Phishing has a half life measured in hours, and triage will not call a message
+# with a link clean once the feeds on disk are stale, so this is what keeps the
+# answer from degrading to "can't tell" on its own. reputation.py --serve decides
+# what is due from the file on disk, so a container that restarts does not go
+# back to the sources for a copy it already has.
+set -eu
+
+# with-contenv repopulates HOME as /root. Reset it before dropping privileges so
+# anything HOME-anchored lands on the volume instead.
+export HOME="${HERMES_HOME:-/var/lib/hermes}"
+export LYRA_STATE="${LYRA_STATE:-/var/lib/hermes/lyra}"
+
+PY=/opt/hermes/.venv/bin/python
+[ -x "$PY" ] || PY=$(command -v python3)
+
+exec s6-setuidgid hermes "$PY" "$HOME/scripts/reputation.py" --serve
