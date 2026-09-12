@@ -29,6 +29,22 @@ MULTI_SUFFIXES = {
     "co.jp", "co.za", "com.co",
 }
 
+# Services that hand out a subdomain to anyone who signs up. The registrable
+# domain here is years old and belongs to the hosting company, so asking a
+# registry how old it is answers a question nobody asked: the name the victim
+# was actually sent was created minutes ago and is not in any registry at all.
+# Treated as suffixes, so the owner becomes the whole name the person got.
+FREE_HOSTS = {
+    "pages.dev", "workers.dev", "r2.dev", "trycloudflare.com",
+    "web.app", "firebaseapp.com", "appspot.com", "run.app",
+    "vercel.app", "netlify.app", "onrender.com", "herokuapp.com",
+    "github.io", "gitlab.io", "glitch.me", "repl.co", "replit.app",
+    "surge.sh", "neocities.org", "000webhostapp.com",
+    "wixsite.com", "weebly.com", "blogspot.com",
+    "duckdns.org", "ngrok.io", "ngrok-free.app",
+    "azurewebsites.net", "s3.amazonaws.com", "blob.core.windows.net",
+}
+
 # Brand token to the domains that brand actually uses. A token found anywhere in
 # a URL whose owner is not on this list is someone borrowing the name. Brazil and
 # the United States get equal weight here, because a scam text is written for the
@@ -148,6 +164,7 @@ WEIGHTS = {
     "hyphenated_brand": 2,
     "cheap_tld": 1,
     "deep_subdomains": 1,
+    "free_subdomain_host": 2,
 }
 
 
@@ -175,9 +192,22 @@ def _edits(a, b):
     return previous[-1]
 
 
+def free_host_of(host):
+    """The signup service this name sits on, if it sits on one."""
+    labels = host.strip(".").split(".")
+    for depth in (3, 2):
+        if len(labels) > depth and ".".join(labels[-depth:]) in FREE_HOSTS:
+            return ".".join(labels[-depth:])
+    return None
+
+
 def registrable(host):
     """The part of the host whose owner matters. www.a.bradesco.com.br is theirs."""
     labels = host.strip(".").split(".")
+    service = free_host_of(host)
+    if service:
+        # One label in front of the service is what the signup bought.
+        return ".".join(labels[-(service.count(".") + 2):])
     if len(labels) >= 3 and ".".join(labels[-2:]) in MULTI_SUFFIXES:
         return ".".join(labels[-3:])
     return ".".join(labels[-2:])
@@ -197,6 +227,7 @@ def find_urls(text):
 _KNOWN_TLDS = {
     "br", "com", "net", "org", "gov", "edu", "io", "co", "me", "app", "dev",
     "info", "biz", "tv", "cc", "ly", "gl", "at", "to", "pt", "us", "uk", "de",
+    "sh",
 } | CHEAP_TLDS
 
 
@@ -231,6 +262,12 @@ def inspect(url, claims=None):
                          "the name contains characters that only look like letters"))
     elif any(ord(c) > 127 for c in host):
         findings.append(("non_latin_host", "the name is not written in plain letters"))
+
+    service = free_host_of(host)
+    if service:
+        findings.append(("free_subdomain_host",
+                         f"{service} hands out a name like this to anyone who signs up, "
+                         f"so the words in front of it were chosen by whoever sent this"))
 
     if owner in SHORTENERS:
         findings.append(("shortener", f"{owner} hides where the link really goes"))
@@ -305,7 +342,8 @@ def _result(url, host, owner, findings):
         if code not in seen:
             seen.add(code)
             unique.append({"code": code, "detail": detail, "weight": WEIGHTS[code]})
-    return {"url": url, "host": host, "owner": owner, "findings": unique}
+    return {"url": url, "host": host, "owner": owner,
+            "free_host": free_host_of(host), "findings": unique}
 
 
 def analyse(text, claims=None):
@@ -362,6 +400,26 @@ def _self_test():
           analyse("https://www.sicredi.com.br/", claims="Sicredi")
           for f in link["findings"]}),
         ("real domain keeps its subdomains", codes("https://banco.bradesco.com.br/a/b") == set()),
+        ("a free hosting subdomain is named as one",
+         "free_subdomain_host" in codes("http://bradesco-seguranca.pages.dev/login")),
+        ("the owner becomes the name the person was actually sent",
+         inspect("http://bradesco-seguranca.pages.dev/login")["owner"]
+         == "bradesco-seguranca.pages.dev"),
+        ("so the brand in front of it is caught too",
+         "brand_mismatch" in codes("http://bradesco-seguranca.pages.dev/login")),
+        ("a deeper name still stops at the account subdomain",
+         inspect("http://login.contas.itau.web.app/")["owner"] == "itau.web.app"),
+        ("a bucket name counts as the owner",
+         inspect("https://faturas.s3.amazonaws.com/x")["owner"]
+         == "faturas.s3.amazonaws.com"),
+        ("the service is carried out for the age check to skip",
+         inspect("http://x.pages.dev/")["free_host"] == "pages.dev"),
+        ("an ordinary domain carries no service",
+         inspect("https://www.bradesco.com.br/")["free_host"] is None),
+        ("a real com.br is still read the old way",
+         inspect("https://banco.bradesco.com.br/a")["owner"] == "bradesco.com.br"),
+        ("the service itself is not a finding without a name in front",
+         "free_subdomain_host" not in codes("https://pages.dev")),
     ]
     for name, passed in cases:
         print(f"{'pass' if passed else 'FAIL'}  {name}")

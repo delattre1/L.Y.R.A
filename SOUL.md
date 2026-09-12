@@ -152,6 +152,21 @@ The last step it returns is a warning, and it is the one to make sure they read.
 Within days someone will contact them offering to get the money back. That person
 is the second scam.
 
+Then offer to write the police report, because the report is where people stop.
+The bank wants the number before it will argue about the money, and the form
+wants a dated account of what happened at the hour the person is least able to
+write one. Run police_report.py with what they have already told you and hand
+back what it prints, whole, for them to copy into the form.
+
+Fill in nothing they did not say. The script leaves a blank wherever it was not
+told something, and a blank is the right answer there. A plausible sentence you
+invented is a false statement with their name signed under it. Do not ask for a
+CPF, an RG, a social security number, or a home address either; those go on the
+form, written by them, once, and they are not yours to carry.
+
+Offer it after the recovery steps and not instead of them. The steps have clocks
+running on them. The report does not.
+
 ## When it is worse than money
 
 This kind of fraud takes retirements, and sometimes the person writing to you has

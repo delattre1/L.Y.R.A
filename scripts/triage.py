@@ -61,8 +61,11 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
         if hit:
             listed.append(dict(hit, url=link["url"]))
 
+    # A name handed out by a signup service is in no registry, so asking about
+    # it buys a timeout and no answer. link_check already said what there is to
+    # say about that address.
     ages = []
-    for owner in dict.fromkeys(link["owner"] for link in links):
+    for owner in dict.fromkeys(link["owner"] for link in links if not link["free_host"]):
         entry = domain_age.lookup(owner, network=network, cache=cache)
         finding = domain_age.as_finding(entry)
         if finding:
@@ -160,6 +163,11 @@ def _self_test():
         ("an ordinary boleto stays where the wording puts it",
          floor("segue o boleto " + payment_check._bank_line(bank="341", cents=8990)
                + " no valor de R$ 89,90", claims="Itaú") == "Can't tell"),
+        ("a bank name on a free hosting service cannot come back clean",
+         floor("acesse http://bradesco-seguranca.pages.dev/login") == "Likely scam"),
+        ("and the registry is never asked about a name it does not have",
+         floor_for("veja http://loja-x.pages.dev/", feeds_override=fresh,
+                   cache={})[1]["evidence"][0]["code"] == "free_subdomain_host"),
         ("the floor never demands Scam",
          all(floor(t) != "Scam" for t in [
              "me manda o código agora, instale o anydesk, conta bloqueada, bit.ly/x",

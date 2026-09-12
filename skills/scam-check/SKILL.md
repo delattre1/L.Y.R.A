@@ -10,8 +10,8 @@ through the checks, decide, and answer through the gate.
 
 If they tell you they have already paid or already handed over a code, stop here
 and follow the post-compromise section of SOUL.md instead. That path runs
-`recovery_steps.py`, which needs to know the country, so ask which one if the
-conversation has not already told you.
+`recovery_steps.py` and then offers `police_report.py`, and both need to know the
+country, so ask which one if the conversation has not already told you.
 
 ## First, get the text
 
