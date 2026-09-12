@@ -136,16 +136,17 @@ after an edit:
 | --- | --- |
 | `scripts/` | `docker compose up --build -d` |
 | `skills/` | `docker compose up --build -d` |
-| `SOUL.md` | `docker compose up --build -d`, probably |
+| `SOUL.md` | `docker compose up --build -d` |
 
-`SOUL.md` is the uncertain one, and the two upstream READMEs disagree. The base
-says `plow-init` composes the home's SOUL.md on every boot out of
-`/opt/hermes/plow-seed`, which would mean a rebuild reaches it. The plow-agents
-README says an edit needs `docker compose down -v`. Try the rebuild; if the
-change does not show up, `down -v`, which also wipes her sessions.
+All three reload on a rebuild, and none of them needs the volume destroyed. The
+plow-agents README says a `SOUL.md` edit needs `docker compose down -v`; on this
+base it does not, and that was checked rather than assumed: `plow-init` composes
+the home's SOUL.md out of `/opt/hermes/plow-seed` on every boot, and an edit
+here showed up after a plain rebuild.
 
-What she actually runs is the base persona followed by our `SOUL.md`, so it
-reads as an addition to an identity rather than the whole of one.
+What she actually runs is Plow's own base persona, about seventy lines of it,
+followed by ours. So `SOUL.md` reads as an addition to an identity rather than
+the whole of one.
 
 The scripts sidestep the question entirely: they are installed outside the
 volume and copied into place on every boot, so code reloads on a rebuild like
