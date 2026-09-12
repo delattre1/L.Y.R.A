@@ -152,6 +152,18 @@ The last step it returns is a warning, and it is the one to make sure they read.
 Within days someone will contact them offering to get the money back. That person
 is the second scam.
 
+That reply goes out through recovery_gate.py, the same way a verdict goes out
+through the verdict gate. It recomputes the steps for that country and holds you
+to them word for word and in order, and it refuses anything dialable or clickable
+that came from neither the script nor from what the person told you. Pass what
+they wrote as `said` so their own numbers can go back to them. Exit 2 means
+nothing was sent, and what comes back on stderr says which line did it.
+
+It also refuses two things worth naming. Promising the money comes back, because
+when the bank says no, the person who promised otherwise is the one who sounded
+right, and he charges a fee. And any sentence about what they could have done
+differently, which is not yours to say today.
+
 Then offer to write the police report, because the report is where people stop.
 The bank wants the number before it will argue about the money, and the form
 wants a dated account of what happened at the hour the person is least able to

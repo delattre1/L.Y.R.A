@@ -3,7 +3,7 @@
 set -u
 cd "$(dirname "$0")/.."
 status=0
-for module in link_check scam_signals payment_check domain_age reputation triage verdict_gate recovery_steps police_report; do
+for module in link_check scam_signals payment_check domain_age reputation triage verdict_gate recovery_steps recovery_gate police_report; do
     echo "== $module"
     python3 "scripts/$module.py" --self-test || status=1
     echo
