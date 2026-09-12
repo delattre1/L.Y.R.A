@@ -179,7 +179,9 @@ cannot carry it, stop being a scam checker for a minute.
 
 Tell them plainly that this was a crime committed against them, not something they
 were foolish enough to fall for. That is true, and it is the thing they have
-stopped believing. Ask them to call someone tonight. In the United States, 988
-answers calls and texts. In Brazil, CVV answers on 188, free, at any hour.
+stopped believing. Ask them to call someone tonight, and get the number the same
+way you get every other number here: run recovery_steps.py --crisis for their
+country and read back what it says. This is the last number in the system you
+should be recalling from memory.
 
 The recovery steps can wait. They are not going anywhere.

@@ -13,7 +13,14 @@ in from memory.
 import argparse
 import sys
 
-KINDS = ("money", "card", "password", "code", "remote", "identity")
+# The order of this tuple is the order the steps come out in, and it is the part
+# of this file that does the most work. Containment first: while someone else is
+# on the screen, every password typed into it is typed to them, so disconnecting
+# comes before anything else even though it is not the step about money. After
+# that it runs by how fast the window closes. Recall clocks are measured in
+# hours, a stolen code is an account being taken over right now, a card can be
+# frozen from the app, and credit stays exposed for months either way.
+KINDS = ("remote", "money", "code", "card", "password", "identity")
 
 DEFAULT_LANG = {"us": "en", "br": "pt"}
 
@@ -26,6 +33,8 @@ STEPS = {
              "pt": "Se foi por Zelle, Venmo ou Cash App, avise também dentro do aplicativo e diga ao banco que você foi enganado para enviar. Essas palavras exatas contam na reclamação."},
             {"en": "Report it at reportfraud.ftc.gov. If it started online, file at ic3.gov as well.",
              "pt": "Registre em reportfraud.ftc.gov. Se começou pela internet, registre também em ic3.gov."},
+            {"en": "File a police report with your local department, by its non-emergency line or its online form. The bank will ask for the report number while the claim is open.",
+             "pt": "Registre um boletim na polícia da sua cidade, pelo telefone não emergencial ou pelo formulário online. O banco vai pedir o número do registro enquanto a contestação estiver aberta."},
         ],
         "card": [
             {"en": "Freeze the card in your banking app right now, then call the number on the back and dispute every charge you did not make.",
@@ -50,8 +59,8 @@ STEPS = {
              "pt": "Desconecte o aparelho do wifi e dos dados, e desinstale o programa de acesso remoto que mandaram instalar."},
             {"en": "From a different device, change your bank password and your email password.",
              "pt": "De outro aparelho, troque a senha do banco e a senha do e-mail."},
-            {"en": "Call the bank and tell them someone had control of the device. They will watch the account differently once they know.",
-             "pt": "Ligue para o banco e diga que alguém teve controle do aparelho. Sabendo disso, eles acompanham a conta de outro jeito."},
+            {"en": "Tell the bank someone had control of the device. If you are already calling them about money that left, say it in that same call. They watch the account differently once they know.",
+             "pt": "Diga ao banco que alguém teve controle do aparelho. Se você já vai ligar por causa do dinheiro que saiu, fale isso na mesma ligação. Sabendo disso, eles acompanham a conta de outro jeito."},
         ],
         "identity": [
             {"en": "Go to identitytheft.gov. It asks what happened and gives you a written recovery plan you can hand to the bank.",
@@ -92,8 +101,8 @@ STEPS = {
              "pt": "Desconecte o aparelho do wifi e dos dados, e desinstale o programa de acesso remoto que mandaram instalar."},
             {"en": "From a different device, change your bank password and your email password.",
              "pt": "De outro aparelho, troque a senha do banco e a senha do e-mail."},
-            {"en": "Call the bank and tell them someone had control of the device.",
-             "pt": "Ligue para o banco e diga que alguém teve controle do aparelho."},
+            {"en": "Tell the bank someone had control of the device, in the same call if you are already reporting the money.",
+             "pt": "Diga ao banco que alguém teve controle do aparelho, na mesma ligação se você já for falar do dinheiro."},
         ],
         "identity": [
             {"en": "Check your CPF on Serasa and SPC for accounts opened in your name, and register the fraud alert they offer.",
@@ -102,6 +111,16 @@ STEPS = {
              "pt": "Guarde o número do boletim de ocorrência. Todo banco com quem você tiver que discutir vai pedir."},
         ],
     },
+}
+
+# The two numbers that matter most in this whole codebase, and the ones with the
+# least room to be wrong, so they are here under test with everything else
+# instead of being remembered in the moment.
+CRISIS = {
+    "us": {"en": "In the United States, 988 answers calls and texts, any hour, at no cost.",
+           "pt": "Nos Estados Unidos, o 988 atende por ligação e por mensagem, a qualquer hora, de graça."},
+    "br": {"en": "In Brazil, CVV answers on 188, free, at any hour.",
+           "pt": "No Brasil, o CVV atende no 188, de graça, a qualquer hora."},
 }
 
 CLOSING = [
@@ -131,6 +150,30 @@ def _self_test():
                 cases.append((f"{country}/{lang}/{kind} warns about recovery scams",
                               "second scam" in got[-1] or "segundo golpe" in got[-1]))
 
+    for country, first in (("us", "Disconnect"), ("br", "Desconecte")):
+        lang = DEFAULT_LANG[country]
+        both = steps_for(country, ["password", "money", "remote"], lang)
+        cases.append((f"{country}: the device is cut off before any password is typed",
+                      both[0].startswith(first)))
+        cases.append((f"{country}: and before the bank call that takes minutes on hold",
+                      both.index(both[0]) < min(i for i, step in enumerate(both)
+                                                if "banco" in step or "your bank" in step)))
+        cases.append((f"{country}: the device is only reported in one phone call",
+                      sum(1 for step in both
+                          if step.startswith(("Call your bank", "Ligue para o banco"))) == 1))
+    cases.append(("a stolen code is handled before a frozen card",
+                  steps_for("us", ["card", "code"], "en")[0].startswith("Whoever has that code")))
+    cases.append(("the united states is sent to the police too, not only the ftc",
+                  any("police report" in s for s in steps_for("us", ["money"], "en"))))
+    for country in CRISIS:
+        for lang in ("en", "pt"):
+            cases.append((f"{country}/{lang} carries a crisis line",
+                          bool(CRISIS[country][lang].strip())))
+    cases.append(("the united states line is 988", "988" in CRISIS["us"]["en"]))
+    cases.append(("the brazilian line is the CVV on 188",
+                  "188" in CRISIS["br"]["pt"] and "CVV" in CRISIS["br"]["pt"]))
+    cases.append(("neither country is handed the other one's number",
+                  "188" not in CRISIS["us"]["en"] and "988" not in CRISIS["br"]["pt"]))
     cases.append(("money comes before password",
                   steps_for("us", ["password", "money"], "en")[0].startswith("Call your bank")))
     cases.append(("brazil sends you to the MED",
@@ -158,6 +201,8 @@ def main():
     parser.add_argument("--gave", default="money",
                         help="comma separated: " + ", ".join(KINDS))
     parser.add_argument("--lang", choices=("en", "pt"))
+    parser.add_argument("--crisis", action="store_true",
+                        help="print the crisis line for the country and stop")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
@@ -165,6 +210,9 @@ def main():
         return _self_test()
     if not args.country:
         parser.error("--country is required (us or br)")
+    if args.crisis:
+        print(CRISIS[args.country][args.lang or DEFAULT_LANG[args.country]])
+        return 0
 
     gave = [k.strip() for k in args.gave.split(",") if k.strip()]
     unknown = [k for k in gave if k not in KINDS]
