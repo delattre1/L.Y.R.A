@@ -2,7 +2,13 @@
 # leaderboard reporter.
 services:
   agent:
-    build: .
+    build:
+      context: .
+      args:
+        # Set in .env beside this file. Required, and the error says so, because
+        # the alternative is a build that guesses a tag and fails at pull time
+        # with a message about none of this.
+        BASE_IMAGE: ${BASE_IMAGE:?set BASE_IMAGE in .env, see README step 1}
     environment:
       # The ID registered once with agent_index_client.py --register.
       AGENT_ID: lyra
