@@ -122,7 +122,33 @@ BRAND_BOUNDARY = r"(?<![a-z0-9]){}(?![a-z0-9])"
 SHORTENERS = {
     "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "cutt.ly", "rebrand.ly",
     "encurtador.com.br", "shorturl.at", "l.wl.co", "tiny.cc", "rb.gy", "shre.ink",
+    "reurl.cc", "lnkd.in", "ow.ly", "buff.ly", "s.id", "urlz.fr", "acortar.link",
 }
+
+# A list of shorteners has the same problem the brand table had: it only knows
+# the ones somebody wrote down, and the one in front of you is the one nobody
+# did. reurl.cc got a real message past the checks scoring nothing.
+#
+# The shape is checkable without the name. A shortener is a bare host with no
+# subdomain and a single short path segment that was generated rather than
+# written: it carries a digit and a letter and mixes case, which is what base62
+# output looks like and what a word on a real site does not. Requiring all three
+# gives up the all-lowercase codes rather than flagging /v2beta on somebody's
+# documentation, which is the right way round for a check that only ever adds
+# suspicion.
+SHORT_CODE_PATH = re.compile(r"^/([A-Za-z0-9_-]{4,12})/?$")
+
+
+def shortener_shaped(host, owner, path):
+    """Whether this reads as a generated short link, without knowing the host."""
+    if host != owner or len(owner) > 14:
+        return False
+    match = SHORT_CODE_PATH.match(path)
+    if not match:
+        return False
+    code = match.group(1)
+    return (any(c.isdigit() for c in code) and any(c.isalpha() for c in code)
+            and not code.islower() and not code.isupper())
 
 # TLDs that are cheap, disposable, and heavily abused. Not proof of anything on
 # their own, which is why this weighs less than a brand mismatch.
@@ -161,6 +187,7 @@ WEIGHTS = {
     "ip_host": 3,
     "non_latin_host": 3,
     "shortener": 2,
+    "shortener_shaped": 2,
     "hyphenated_brand": 2,
     "cheap_tld": 1,
     "deep_subdomains": 1,
@@ -213,6 +240,13 @@ def registrable(host):
     return ".".join(labels[-2:])
 
 
+# Punctuation that ends the sentence rather than the address. Written inline in
+# prose, a link arrives as "acesse http://x.top/login." and the period is not
+# part of the path -- which matters beyond tidiness, because a feed match is an
+# exact string comparison and a trailing comma misses it.
+TRAILING = ".,;:!?'\"')]}>"
+
+
 def find_urls(text):
     found = []
     for match in URL_RE.finditer(text):
@@ -220,7 +254,7 @@ def find_urls(text):
         tld = authority.rsplit(".", 1)[-1].split(":")[0]
         if not match.group("scheme") and tld.lower() not in _KNOWN_TLDS:
             continue  # a sentence like "R$ 4.500,00 hoje" is not a link
-        found.append(match.group(0))
+        found.append(match.group(0).rstrip(TRAILING))
     return found
 
 
@@ -271,6 +305,10 @@ def inspect(url, claims=None):
 
     if owner in SHORTENERS:
         findings.append(("shortener", f"{owner} hides where the link really goes"))
+    elif shortener_shaped(host, owner, path):
+        findings.append(("shortener_shaped",
+                         f"{owner} hands back a short generated code instead of an "
+                         f"address, so the link does not say where it goes"))
 
     tld = owner.rsplit(".", 1)[-1]
     if tld in CHEAP_TLDS:
@@ -420,6 +458,32 @@ def _self_test():
          inspect("https://banco.bradesco.com.br/a")["owner"] == "bradesco.com.br"),
         ("the service itself is not a finding without a name in front",
          "free_subdomain_host" not in codes("https://pages.dev")),
+        ("the one that got a real message past us is listed now",
+         "shortener" in codes("entre em https://reurl.cc/0kWoGK")),
+        ("a shortener nobody listed is caught by its shape",
+         "shortener_shaped" in codes("entre em https://xlk.cc/0kWoGK")),
+        ("so is one on a host invented tomorrow",
+         "shortener_shaped" in codes("http://qz9.to/7bKq2x")),
+        ("a listed shortener is still named as itself",
+         "shortener" in codes("olha isso bit.ly/3xAbC")),
+        ("and is not double counted",
+         "shortener_shaped" not in codes("olha isso bit.ly/3xAbC")),
+        ("documentation is not a short link",
+         "shortener_shaped" not in codes("https://example.com/v2beta")),
+        ("nor is a page whose name happens to be mixed case",
+         "shortener_shaped" not in codes("https://example.com/AboutUs")),
+        ("nor is a real site with a subdomain",
+         "shortener_shaped" not in codes("https://www.bradesco.com.br/Th3Page")),
+        ("nor is a deep path", "shortener_shaped" not in codes("https://loja.com/p/aB3x9")),
+        ("a full stop is not part of the address",
+         analyse("acesse http://x.top/login.")[0]["url"] == "http://x.top/login"),
+        ("neither is a comma in the middle of a sentence",
+         analyse("olha https://xlk.cc/0kWoGK, entre agora")[0]["url"]
+         == "https://xlk.cc/0kWoGK"),
+        ("so the shape is still read through the punctuation",
+         "shortener_shaped" in codes("olha https://xlk.cc/0kWoGK, entre agora")),
+        ("a closing bracket is not part of it either",
+         analyse("(veja http://x.top/a)")[0]["url"] == "http://x.top/a"),
     ]
     for name, passed in cases:
         print(f"{'pass' if passed else 'FAIL'}  {name}")

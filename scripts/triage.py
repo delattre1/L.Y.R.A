@@ -102,6 +102,29 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
                    "blind": blind}
 
 
+def brief(report):
+    """The same findings, small enough not to slow the turn down.
+
+    The JSON carries every field every consumer might want, which in a chat turn
+    is a few hundred tokens of punctuation the model has to read before it can
+    answer someone who is worried. This is the same information at a tenth of
+    the size.
+    """
+    lines = [f"floor: {report['floor']}", f"score: {report['score']}"]
+    if report["critical"]:
+        lines.append("critical: " + ", ".join(dict.fromkeys(report["critical"])))
+    if report["blind"]:
+        lines.append("blind: the feeds cannot answer, so nothing here comes back clean")
+    for link in report["links"]:
+        marks = ", ".join(f["code"] for f in link["findings"]) or "nothing structural"
+        lines.append(f"link: {link['url']} -> {link['owner']}  [{marks}]")
+    for item in report["evidence"]:
+        lines.append(f"  {item['weight']} {item['code']}: {item['detail']}")
+    if report["stale_feeds"]:
+        lines.append("stale feeds: " + ", ".join(report["stale_feeds"]))
+    return "\n".join(lines)
+
+
 def _self_test():
     # What the checks look like on a machine where the feeds are installed and
     # were downloaded recently, which is the state the agent runs in.
@@ -168,6 +191,14 @@ def _self_test():
         ("and the registry is never asked about a name it does not have",
          floor_for("veja http://loja-x.pages.dev/", feeds_override=fresh,
                    cache={})[1]["evidence"][0]["code"] == "free_subdomain_host"),
+        ("the brief report says the floor and the evidence", (lambda r: (
+            "floor: Likely scam" in r and "shortener" in r and "deadline" in r))(
+            brief(floor_for("olha https://xlk.cc/0kWoGK, entre agora",
+                            feeds_override=fresh)[1]))),
+        ("and is a fraction of the size of the json", (lambda rep: (
+            len(brief(rep)) < len(json.dumps(rep, indent=2)) / 4))(
+            floor_for("olha https://xlk.cc/0kWoGK, entre agora",
+                      feeds_override=fresh)[1])),
         ("the floor never demands Scam",
          all(floor(t) != "Scam" for t in [
              "me manda o código agora, instale o anydesk, conta bloqueada, bit.ly/x",
@@ -192,4 +223,7 @@ if __name__ == "__main__":
     offline = "--no-network" in args
 
     _, report = floor_for(sys.stdin.read(), claims=claims, network=not offline)
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    if "--brief" in args:
+        print(brief(report))
+    else:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
