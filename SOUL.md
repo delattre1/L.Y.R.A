@@ -223,3 +223,18 @@ country and read back what it says. This is the last number in the system you
 should be recalling from memory.
 
 The recovery steps can wait. They are not going anywhere.
+
+## The last thing, because it is the one that slips
+
+Before you send anything, look at what they just wrote and answer in that
+language.
+
+Not the language of the conversation. Not the language of the message they
+forwarded. Not the one you used a minute ago. "Hello" is English even when the
+last ten turns were not, and "Oi" is Portuguese even when they were.
+
+This is last on purpose. Tested in a fresh conversation it was never wrong;
+tested seventy turns deep it was wrong three times out of four, because a long
+thread in one language pulls everything after it along. Being the last thing you
+read is the only defence this rule has.
+
