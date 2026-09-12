@@ -21,6 +21,9 @@ Reads one JSON object on stdin:
     teach_back  one sentence naming the pattern
     message     what the person forwarded, transcribed if it came as an image
     lang        "en" or "pt", matching the language the four fields are written in
+    asked       optional, what the PERSON wrote to you this turn, in their own
+                words. Not the forwarded message. It decides which language the
+                reply has to be in, and it is the only thing that can.
 
 The message is read and dropped. It is never written anywhere.
 
@@ -35,6 +38,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import language
 from triage import SEVERITY, floor_for
 
 # Ordered most to least severe. "Safe" is not on this scale: calling a scam
@@ -167,6 +171,17 @@ def build(payload):
 
     written = " ".join([reasoning, next_action, teach_back]).lower()
     counts = {code: len(re.findall(pattern, written)) for code, pattern in MARKERS.items()}
+    # The forwarded message says nothing about the reader: somebody in Orlando
+    # forwards a Portuguese scam and asks about it in English. Only their own
+    # words decide, so only their own words are read. Silence leaves the choice
+    # with the model rather than refusing on a guess.
+    spoken = language.detect(payload.get("asked"))
+    if spoken and spoken != lang:
+        raise Refused(
+            f"lang: they wrote to you in {spoken!r} and this reply is {lang!r}. "
+            f"Answer in the language they used. The language of the message they "
+            f"forwarded is not theirs.")
+
     other = "pt" if lang == "en" else "en"
     if counts[other] >= 3 and counts[other] > counts[lang]:
         raise Refused(
@@ -228,6 +243,14 @@ def _self_test():
     quoted = dict(pt, reasoning="O link diz Bradesco, mas o endereço é seguro-app.top, "
                                 "que não pertence ao banco.")
     cases.append(("a domain containing seguro is not reassurance", bool(build(quoted))))
+    cases.append(("a reply matching what they wrote goes out",
+                  bool(build(dict(pt, asked="Me mandaram isso, sera que e golpe?")))))
+    cases.append(("and so does one where they gave nothing to go on",
+                  bool(build(dict(pt, asked="ok")))))
+    cases.append(("the forwarded message's language never decides",
+                  bool(build(dict(ok, asked="Is this real? They sent it to my mother",
+                                  message="Sua conta sera bloqueada hoje. "
+                                          "Acesse http://bradesco.seguro-app.top")))))
     cases.append(("no english leaks into a portuguese reply",
                   "What to do" not in pt_reply and CAUTION["en"] not in pt_reply))
 
@@ -260,6 +283,10 @@ def _self_test():
         ("rejects reassurance", dict(ok, reasoning="This one is safe to open, no red flags at all.")),
         ("rejects reassurance in teach_back", dict(ok, teach_back="Messages like this are usually legitimate.")),
         ("rejects a missing lang", {k: v for k, v in ok.items() if k != "lang"}),
+        ("rejects portuguese when they wrote in english",
+         dict(pt, asked="No, forget about that earlier, is this one a scam?")),
+        ("rejects english when they wrote in portuguese",
+         dict(ok, asked="Me mandaram isso, sera que e golpe?")),
         ("rejects an unknown lang", dict(ok, lang="es")),
         ("rejects portuguese prose labelled english", dict(ok, **{k: pt[k] for k in
             ("reasoning", "next_action", "teach_back")})),

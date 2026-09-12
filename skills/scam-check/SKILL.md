@@ -130,6 +130,11 @@ their language and set `lang` to `en` or `pt` to match. The gate renders the
 verdict line, the "what to do" prefix, and the caution in that language, and it
 refuses if `lang` disagrees with the prose you wrote.
 
+Pass `asked` as well: their own words this turn, not the message they forwarded.
+It is what decides the language of the reply, and it is the only thing that can,
+because the forwarded text is written by somebody else. The gate refuses a reply
+in a language they did not use.
+
 Pass `claims` here too, the same string you gave triage. The gate reruns the
 checks on the message before it sends anything, and it reuses the registry answers
 triage already fetched instead of waiting on the network again. Skipping triage

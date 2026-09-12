@@ -40,6 +40,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import language
 import police_report
 import recovery_steps
 
@@ -136,6 +137,12 @@ def check(payload):
     lang = payload.get("lang") or recovery_steps.DEFAULT_LANG[country]
     if lang not in ("en", "pt"):
         raise Refused("lang: must be 'en' or 'pt'")
+
+    spoken = language.detect(payload.get("said"))
+    if spoken and spoken != lang:
+        raise Refused(
+            f"lang: they wrote to you in {spoken!r} and these steps are {lang!r}. "
+            f"Country decides which steps; their own words decide the language.")
 
     steps = recovery_steps.steps_for(country, gave, lang)
     warning = steps[-1]
@@ -283,6 +290,13 @@ def _self_test():
         ("a heading is refused", refused(dict(base, reply="## Passos\n\n" + good))),
         ("bold is refused", refused(dict(base, reply=good + "\n\n**importante**"))),
         ("the steps' own numbering is not read as a bullet", bool(check(base))),
+        ("steps in the wrong language for the person are refused",
+         refused(dict(base, said="I already paid, what do I do now?"))),
+        ("the country still decides which steps, not the language",
+         bool(check({"country": "br", "gave": ["money"], "lang": "en",
+                     "said": "I already paid, what should I do?",
+                     "reply": "Do these in order:\n\n"
+                     + "\n".join(recovery_steps.steps_for("br", ["money"], "en"))}))),
         ("an unknown country is refused", refused(dict(base, country="pt"))),
         ("a missing gave is refused", refused({"reply": good, "country": "br"})),
         ("an unknown kind is refused", refused(dict(base, gave=["dignity"]))),
