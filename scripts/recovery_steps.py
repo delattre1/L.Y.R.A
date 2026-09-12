@@ -24,6 +24,28 @@ KINDS = ("remote", "money", "code", "card", "password", "identity")
 
 DEFAULT_LANG = {"us": "en", "br": "pt"}
 
+# What someone actually says they handed over. These are the words a person uses
+# and the words a model reaches for, and refusing them costs a whole turn each
+# time: the live agent spent two asking for "BR" and for "pix" before finding
+# the spelling this file wanted. The instrument is not the kind -- a Pix, a wire
+# and a boleto are all money leaving -- so the mapping belongs here rather than
+# in whoever is typing.
+SYNONYMS = {
+    "pix": "money", "boleto": "money", "ted": "money", "doc": "money",
+    "transfer": "money", "transferencia": "money", "wire": "money",
+    "zelle": "money", "venmo": "money", "cashapp": "money", "deposit": "money",
+    "deposito": "money", "payment": "money", "pagamento": "money",
+    "dinheiro": "money", "giftcard": "money", "gift_card": "money",
+    "crypto": "money", "cripto": "money",
+    "cartao": "card", "credit_card": "card", "debit_card": "card",
+    "senha": "password", "login": "password", "credentials": "password",
+    "codigo": "code", "sms": "code", "otp": "code", "2fa": "code",
+    "anydesk": "remote", "teamviewer": "remote", "screen": "remote",
+    "acesso_remoto": "remote",
+    "cpf": "identity", "ssn": "identity", "documento": "identity",
+    "documents": "identity", "rg": "identity",
+}
+
 STEPS = {
     "us": {
         "money": [
@@ -174,6 +196,14 @@ def _self_test():
                   "188" in CRISIS["br"]["pt"] and "CVV" in CRISIS["br"]["pt"]))
     cases.append(("neither country is handed the other one's number",
                   "188" not in CRISIS["us"]["en"] and "988" not in CRISIS["br"]["pt"]))
+    cases.append(("the instrument someone names maps to the kind",
+                  all(SYNONYMS[w] == "money" for w in ("pix", "boleto", "zelle", "wire"))))
+    cases.append(("and the remote access tools people are talked into installing",
+                  SYNONYMS["anydesk"] == "remote" and SYNONYMS["teamviewer"] == "remote"))
+    cases.append(("no synonym points at a kind that does not exist",
+                  all(v in KINDS for v in SYNONYMS.values())))
+    cases.append(("and none of them shadows a real kind",
+                  not (set(SYNONYMS) & set(KINDS))))
     cases.append(("money comes before password",
                   steps_for("us", ["password", "money"], "en")[0].startswith("Call your bank")))
     cases.append(("brazil sends you to the MED",
@@ -197,7 +227,7 @@ def _self_test():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--country", choices=sorted(STEPS))
+    parser.add_argument("--country", type=str.lower, choices=sorted(STEPS))
     parser.add_argument("--gave", default="money",
                         help="comma separated: " + ", ".join(KINDS))
     parser.add_argument("--lang", choices=("en", "pt"))
@@ -214,10 +244,13 @@ def main():
         print(CRISIS[args.country][args.lang or DEFAULT_LANG[args.country]])
         return 0
 
-    gave = [k.strip() for k in args.gave.split(",") if k.strip()]
+    gave = [SYNONYMS.get(k, k) for k in
+            (w.strip().lower().replace(" ", "_") for w in args.gave.split(",")) if k]
     unknown = [k for k in gave if k not in KINDS]
     if unknown:
-        parser.error(f"unknown --gave value: {', '.join(unknown)}")
+        parser.error(f"do not know what {', '.join(unknown)} is. Use one or more of "
+                     f"{', '.join(KINDS)}; a Pix, a wire or a boleto are all 'money'.")
+    gave = list(dict.fromkeys(gave))
 
     lang = args.lang or DEFAULT_LANG[args.country]
     for number, step in enumerate(steps_for(args.country, gave, lang), 1):

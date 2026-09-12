@@ -214,6 +214,9 @@ def _self_test():
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        print(__doc__.strip())
+        sys.exit(0)
     if "--self-test" in args:
         sys.exit(_self_test())
 

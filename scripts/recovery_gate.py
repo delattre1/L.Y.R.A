@@ -319,6 +319,9 @@ def _message(payload, needle):
 
 
 def main():
+    if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
     if "--self-test" in sys.argv[1:]:
         return _self_test()
 
