@@ -38,6 +38,24 @@ SIGNALS = [
         r"card number|full card details|\bssn\b|social security number",
         r"(sign|log) ?in (here|now|below) to (verify|confirm|restore|unlock)",
     ]),
+    # Nobody legitimate hands you an Android package over a chat. Shops send you
+    # to a store, banks send you to a store, couriers send you to a store. A file
+    # that installs itself is the whole attack: once it is on the handset it
+    # reads the SMS, draws over the bank app, and the money leaves from the
+    # phone's own address. This is the dominant vector in Brazil right now and
+    # it had no signal at all.
+    ("apk_file", 3, "hands over an app as a file, which no company does", [
+        r"\.apk\b|apk\b[^.]{0,12}(anexo|enviado|baixe|instale)",
+        r"fontes desconhecidas|origens desconhecidas|unknown sources",
+        r"sideload|instalar fora d[ao] (play|loja|app store)",
+    ]),
+    ("app_install_request", 2, "makes installing something the price of finishing", [
+        r"(realize|fa[çc]a|precisa fazer) a instala[çc][ãa]o",
+        r"instal(e|ar|a[çc][ãa]o) (d[oa] )?(aplicativo|app|programa)[^.]{0,30}(para|pra|a fim de)",
+        r"(baixe|instale)[^.]{0,25}(para|pra) (obter|gerar|liberar|receber|confirmar)",
+        r"te auxilio no momento da instala[çc][ãa]o|te ajudo a instalar",
+        r"install (this|the|our) app[^.]{0,25}(to|in order to) (get|generate|receive|confirm|unlock)",
+    ]),
     ("remote_access", 3, "wants software installed that hands over control of the device", [
         r"anydesk|teamviewer|rustdesk|quick ?support|screen ?connect",
         r"instale? (o |esse |este )?(aplicativo|app|programa)[a-z ]{0,20}(acesso|suporte|remoto)",
@@ -199,6 +217,21 @@ def _self_test():
         ("the wording this one actually used",
          "investment_or_job" in codes("estou contratando uma equipe de meio periodo "
                                       "trabalhando em casa")),
+        ("an apk sent over chat is the attack",
+         "apk_file" in codes("[Arquivo enviado: MAGALU ENTREGAS.apk, 16 MB]")),
+        ("so is being walked through turning sideloading on",
+         "apk_file" in codes("voce precisa habilitar fontes desconhecidas antes")),
+        ("installing something to finish a delivery is the ask",
+         "app_install_request" in codes("somente e necessario que realize a instalacao "
+                                        "do Magalu entregas para obter o itoken")),
+        ("and the offer to help you through it",
+         "app_install_request" in codes("qualquer duvida pode me chamar que te auxilio "
+                                        "no momento da instalacao")),
+        ("but being told to get the app from the store is not",
+         "apk_file" not in codes("baixe o aplicativo na Play Store")
+         and "app_install_request" not in codes("baixe o aplicativo na Play Store")),
+        ("nor is an ordinary mention of an app",
+         "app_install_request" not in codes("abri o aplicativo do banco e vi a cobranca")),
         ("pix", "instant_transfer" in codes("faça um pix para a chave pix abaixo")),
         ("zelle", "instant_transfer" in codes("just send it over Zelle and we're good")),
         ("wire", "instant_transfer" in codes("please wire the money today")),
