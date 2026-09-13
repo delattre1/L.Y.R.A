@@ -21,6 +21,8 @@ Reads one JSON object on stdin:
     teach_back  one sentence naming the pattern
     message     what the person forwarded, transcribed if it came as an image
     lang        "en" or "pt", matching the language the four fields are written in
+    country     optional, "br" or "us", where the person banks. It is what lets a
+                dialling code be read, and it is asked for rather than guessed.
     asked       optional, what the PERSON wrote to you this turn, in their own
                 words. Not the forwarded message. It decides which language the
                 reply has to be in, and it is the only thing that can.
@@ -153,7 +155,8 @@ def build(payload):
     # network=False on purpose: the gate reads registry answers that triage
     # already cached and never waits on a lookup while someone is waiting for a
     # reply. A cold cache costs evidence, and evidence only ever adds caution.
-    floor, report = floor_for(message, claims=payload.get("claims"), network=False)
+    floor, report = floor_for(message, claims=payload.get("claims"), network=False,
+                              country=payload.get("country"))
     if SEVERITY[verdict] < SEVERITY[floor]:
         # Weightless items are facts we noticed, not reasons the floor is where it
         # is, and naming them here would pad the refusal with things that held

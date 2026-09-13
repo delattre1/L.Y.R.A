@@ -34,7 +34,7 @@ is the one piece of output no gate sees.
 ## Then run triage
 
 ```bash
-python3 /var/lib/hermes/scripts/triage.py --brief --claims "Bradesco" <<'MSG'
+python3 /var/lib/hermes/scripts/triage.py --brief --claims "Bradesco" --country br <<'MSG'
 Sua conta sera bloqueada hoje. Acesse http://bradesco.seguro-app.top/login
 MSG
 ```
@@ -44,6 +44,12 @@ message gives it: Bradesco, Chase, USPS, the IRS, the local credit union. You ar
 the only part of this that can read a logo, a signature, or a sender name, and the
 check compares that name against who the address actually belongs to. It works for
 companies nobody wrote down anywhere.
+
+Pass `--country` when you know where they bank, and ask if you do not. It is the
+only way a dialling code can be read: a number is foreign only relative to
+somewhere, language does not say where, and a company that serves Brazil does not
+contact Brazilians from Bangladesh. Without it that check finds nothing rather
+than guessing.
 
 `--brief` gives you the floor, the score, and one line per finding, which is what
 you need and reads faster than the JSON. Drop it when you want every field.

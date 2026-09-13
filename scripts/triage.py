@@ -14,7 +14,7 @@ Nothing here writes the message anywhere. It goes in on stdin, the findings come
 out, and the text is gone when the process exits.
 
     echo "sua conta sera bloqueada, acesse bradesco.seguro.top" | triage.py
-    triage.py --claims "Chase" < message.txt
+    triage.py --claims "Chase" --country us < message.txt
     triage.py --no-network < message.txt
 """
 
@@ -29,6 +29,7 @@ import link_check
 import payment_check
 import reputation
 import scam_signals
+import sender_check
 
 SEVERITY = {"No red flags found": 0, "Can't tell": 1, "Likely scam": 2, "Scam": 3}
 
@@ -36,17 +37,21 @@ CRITICAL_WEIGHT = 3
 STACKED_SCORE = 4
 
 
-def floor_for(text, claims=None, network=False, cache=None, feeds_override=None):
+def floor_for(text, claims=None, network=False, cache=None, feeds_override=None,
+              country=None):
     """Return (floor verdict, evidence) for a message.
 
     claims is the company the message says it is from, when the model can name
-    one. network decides whether registry lookups are allowed: triage asks, the
+    one. country is where the person banks, which is the only way to read a
+    dialling code: language does not say it and guessing it is how somebody in
+    Orlando gets told their own bank is foreign. network decides whether registry lookups are allowed: triage asks, the
     gate reads only what triage already cached, so sending stays fast and works
     offline.
     """
     links = link_check.analyse(text, claims)
     signals = scam_signals.analyse(text)
     payments = payment_check.analyse(text, claims)
+    origins = sender_check.analyse(text, country)
 
     if cache is None:
         cache = domain_age._load_cache() if links else {}
@@ -77,7 +82,7 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
     # our own blindness is not evidence against the sender.
     blind = bool(links) and not any(not feed["stale"] for feed in feeds.values())
 
-    evidence = listed + ages + payments + [
+    evidence = listed + ages + payments + origins + [
         {"code": f["code"], "weight": f["weight"], "detail": f["detail"], "url": link["url"]}
         for link in links for f in link["findings"]
     ] + [
@@ -97,6 +102,7 @@ def floor_for(text, claims=None, network=False, cache=None, feeds_override=None)
 
     stale = sorted(name for name, feed in feeds.items() if feed["stale"])
     return floor, {"links": links, "signals": signals, "payments": payments,
+                   "origins": origins,
                    "evidence": evidence, "score": score, "critical": critical,
                    "floor": floor, "feeds": sorted(feeds), "stale_feeds": stale,
                    "blind": blind}
@@ -204,6 +210,17 @@ def _self_test():
                "uma equipe de meio periodo trabalhando em casa. Salario diario: "
                "500-2000 reais. https://wa.me/4915510812682",
                claims="Mercado Livre") == "Likely scam"),
+        ("a foreign number is read once somebody says where they bank",
+         floor("Mercado Livre contratando. https://wa.me/4915510812682",
+               claims="Mercado Livre", country="br") == "Likely scam"),
+        ("and the same message says nothing about origin without that",
+         "foreign_handoff" not in [i["code"] for i in floor_for(
+             "Mercado Livre contratando. https://wa.me/4915510812682",
+             claims="Mercado Livre", feeds_override=fresh)[1]["evidence"]]),
+        ("a local number is not foreign",
+         "foreign_handoff" not in [i["code"] for i in floor_for(
+             "fale em https://wa.me/5511987654321", country="br",
+             feeds_override=fresh)[1]["evidence"]]),
         ("the floor never demands Scam",
          all(floor(t) != "Scam" for t in [
              "me manda o código agora, instale o anydesk, conta bloqueada, bit.ly/x",
@@ -228,9 +245,11 @@ if __name__ == "__main__":
     claims = None
     if "--claims" in args:
         claims = args[args.index("--claims") + 1]
+    country = args[args.index("--country") + 1].lower() if "--country" in args else None
     offline = "--no-network" in args
 
-    _, report = floor_for(sys.stdin.read(), claims=claims, network=not offline)
+    _, report = floor_for(sys.stdin.read(), claims=claims, network=not offline,
+                          country=country)
     if "--brief" in args:
         print(brief(report))
     else:
