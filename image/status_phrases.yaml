@@ -1,0 +1,29 @@
+# What Lyra says while the checks run.
+#
+# This is the harness speaking, not her: the gateway picks a line from here when
+# a turn outlasts HERMES_AGENT_NOTIFY_INTERVAL. That is the whole reason it
+# works. Two attempts at getting her to say it herself failed, because the model
+# never emits text alongside a tool call in this harness -- 0 times out of 9 in
+# a real transcript -- and no amount of instruction changes that.
+#
+# One catalogue, no language dimension. These are Portuguese because most of the
+# people texting her are, and the cost is that an English speaker sees a
+# Portuguese status line for a few seconds before an English answer. That is a
+# wart; a verdict in the wrong language would be a bug.
+#
+# It carries no reading of the message, deliberately. This text is the one thing
+# that reaches someone without passing a gate, so "parece tranquilo" here would
+# be the verdict arriving before anything had been checked.
+status:
+- só um segundo, conferindo
+- ainda conferindo
+- checando o link
+- ainda checando, não travei
+- rodando as verificações
+- ainda rodando, já volto
+- olhando isso agora
+- ainda olhando
+- conferindo o endereço
+- ainda aqui, verificando
+- essa parte demora um pouco
+- quase lá

@@ -8,6 +8,12 @@ services:
     environment:
       # The ID registered once with agent_index_client.py --register.
       AGENT_ID: lyra
+      # How long a turn runs before she says she is still on it. The default is
+      # 180, which is three times longer than a scam check takes, which is why
+      # nobody ever saw one. Low enough to land inside a check, high enough not
+      # to repeat during one: iMessage cannot edit a message, so every repeat is
+      # a new one.
+      HERMES_AGENT_NOTIFY_INTERVAL: "20"
     volumes:
       # `.host`: the image copies it into place as root, so the file's host ownership does not matter.
       - ./plow-credentials:/var/lib/plow/credentials.host:ro

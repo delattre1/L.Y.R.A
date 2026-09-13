@@ -34,6 +34,7 @@ COPY --chown=10000:10000 skills/ /opt/hermes/skills/
 # The checks. SKILL.md calls them by absolute path under the home, and
 # 03-lyra-scripts is what puts them there on every boot, which is the behaviour
 # code wants: a rebuild reaches them without destroying the agent's sessions.
+COPY --chown=0:0 image/status_phrases.yaml /opt/lyra/status_phrases.yaml
 COPY --chown=0:0 scripts/ /opt/lyra/scripts/
 COPY --chown=0:0 tests/ /opt/lyra/tests/
 

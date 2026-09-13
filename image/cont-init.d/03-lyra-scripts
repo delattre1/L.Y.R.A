@@ -26,4 +26,33 @@ chown -R hermes:hermes "$HERMES_HOME/scripts" "$LYRA_STATE" \
     "$HERMES_HOME/.agent-index" 2>/dev/null \
     || echo "[lyra] Warning: chown failed (rootless container?) — continuing"
 
+# What she says while the checks run.
+#
+# The interval is the part that matters and it comes from the environment, so it
+# always applies: the default of 180s is three times longer than a check takes,
+# which is why nobody ever saw a status line. The wording is the part that does
+# not stick. The reader accepts "generic" and picks a line from the catalogue,
+# but the gateway rewrites config.yaml at startup, after this runs, and the
+# value does not survive the round trip -- so on this base the line arrives in
+# the built-in wording instead. Left in because it is harmless and correct, and
+# because a fresh volume may seed in a different order.
+cp /opt/lyra/status_phrases.yaml "$HERMES_HOME/status_phrases.yaml" 2>/dev/null || true
+chown hermes:hermes "$HERMES_HOME/status_phrases.yaml" 2>/dev/null || true
+
+python3 - "$HERMES_HOME/config.yaml" <<'PYEOF' || echo "[lyra] Warning: could not set the status display mode — continuing"
+import sys, yaml
+path = sys.argv[1]
+with open(path) as handle:
+    cfg = yaml.safe_load(handle) or {}
+display = cfg.setdefault("display", {})
+plat = display.setdefault("platforms", {}).setdefault("plow_chat", {})
+# "generic" picks a line from the catalogue instead of "Working — 0 min"; the
+# detail suffix is an iteration counter, which is for us and not for them.
+plat["long_running_notifications"] = "generic"
+plat["busy_ack_detail"] = False
+with open(path, "w") as handle:
+    yaml.safe_dump(cfg, handle, allow_unicode=True, sort_keys=False)
+print("[lyra] asked for status lines in her own words")
+PYEOF
+
 echo "[lyra] $(ls -1 "$HERMES_HOME/scripts"/*.py | wc -l) checks in place at $HERMES_HOME/scripts"
