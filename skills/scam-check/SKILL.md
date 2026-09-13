@@ -21,6 +21,16 @@ reads text, and so does the gate, which will refuse to send anything without it.
 Transcribe what is there, including the sender line and the link, and say in your
 reasoning if the picture cuts something off.
 
+## Say something first
+
+One short line in their language before the checks start, because the next part
+is quiet and they are waiting. "Deixa eu conferir esse link." "Let me look at
+that." Then run the checks in the same turn: the gateway sends what you wrote
+before the tool call as its own message, so they get it immediately.
+
+It carries no read on the message. You have not run anything yet, and that line
+is the one piece of output no gate sees.
+
 ## Then run triage
 
 ```bash
