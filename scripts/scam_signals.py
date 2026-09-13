@@ -121,9 +121,21 @@ SIGNALS = [
     ("boleto", 1, "arrives with a boleto or barcode to pay", [
         r"boleto|c[oó]digo de barras|segunda via[^.]{0,20}(fatura|conta)",
     ]),
+    ("daily_pay_promise", 2, "puts a figure on a day's pay, which a real job does not", [
+        r"sal[áa]rio di[áa]rio|renda di[áa]ria|ganho di[áa]rio|pagamento di[áa]rio",
+        r"liquidad[oa]s? no mesmo dia|pag[oa]s? no mesmo dia|receb[ae] no mesmo dia",
+        r"r?\$?\s*\d{2,5}\s*[-a]\s*\d{2,5}[^.\n]{0,14}(por dia|ao dia|di[áa]ri)",
+        # Anchored on money on purpose: "por dia" alone is how a mother writes
+        # about medication, and "tome 10 gotas por dia" is not a job offer.
+        r"r?\$\s*\d{2,5}[^.\n]{0,14}(por dia|ao dia)\b",
+        r"\d{2,5}\s*(reais|d[óo]lares|dolares)[^.\n]{0,14}(por dia|ao dia)\b",
+        r"(daily|per[- ]day) (pay|income|earnings|salary)|paid (out )?same day",
+    ]),
     ("investment_or_job", 1, "offers income that starts with a payment", [
         r"renda extra|lucro (garantido|di[aá]rio)|investimento[^.]{0,20}(garantid|retorno)",
-        r"trabalhe de casa|vaga (dispon[ií]vel|urgente)|ganhe (at[eé] )?r?\$",
+        r"trabalh(e|ando|ar) (de|em) casa|vaga (dispon[ií]vel|urgente)|ganhe (at[eé] )?r?\$",
+        r"meio per[íi]odo|sem experi[êe]ncia|estou contratando|recrutando|contratando (uma )?equipe",
+        r"hiring (a |an )?(team|staff)|now hiring|join our team",
         r"work from home|part[- ]time (job|position) (opportunity|available)",
         r"guaranteed (return|profit|income)|earn (up to )?\$\d|no experience (needed|required)",
     ]),
@@ -173,6 +185,20 @@ def _self_test():
         ("gift card", "gift_card_or_crypto" in codes("pague com gift card do Google Play")),
         ("blocked account", "account_threat" in codes("sua conta será bloqueada")),
         ("deadline", "deadline" in codes("você tem 30 minutos para regularizar")),
+        ("a daily salary is not how a job is described",
+         "daily_pay_promise" in codes("Salário diário: 500-2000 reais")),
+        ("nor is being paid the same day",
+         "daily_pay_promise" in codes("os salarios serao liquidados no mesmo dia")),
+        ("money per day in either currency form",
+         "daily_pay_promise" in codes("ganhe 300 reais por dia")
+         and "daily_pay_promise" in codes("ganhe R$ 400 por dia")),
+        ("but a mother writing about medication is not offering work",
+         "daily_pay_promise" not in codes("tome 10 gotas por dia, filho")),
+        ("nor is a shop's opening hours",
+         "daily_pay_promise" not in codes("a farmacia abre 12 horas por dia")),
+        ("the wording this one actually used",
+         "investment_or_job" in codes("estou contratando uma equipe de meio periodo "
+                                      "trabalhando em casa")),
         ("pix", "instant_transfer" in codes("faça um pix para a chave pix abaixo")),
         ("zelle", "instant_transfer" in codes("just send it over Zelle and we're good")),
         ("wire", "instant_transfer" in codes("please wire the money today")),

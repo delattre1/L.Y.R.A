@@ -138,6 +138,15 @@ SHORTENERS = {
 # suspicion.
 SHORT_CODE_PATH = re.compile(r"^/([A-Za-z0-9_-]{4,12})/?$")
 
+# Links whose entire purpose is to move the conversation onto a number or
+# account you cannot see. The domains are real and that is the point: routing a
+# victim through wa.me borrows WhatsApp's own name to get them off the channel
+# where the message could be reported, onto a handset that is thrown away after.
+HANDOFF = frozenset({
+    "wa.me", "api.whatsapp.com", "chat.whatsapp.com",
+    "t.me", "telegram.me", "telegram.dog", "m.me", "ig.me",
+})
+
 
 def shortener_shaped(host, owner, path):
     """Whether this reads as a generated short link, without knowing the host."""
@@ -188,6 +197,7 @@ WEIGHTS = {
     "non_latin_host": 3,
     "shortener": 2,
     "shortener_shaped": 2,
+    "contact_handoff": 2,
     "hyphenated_brand": 2,
     "cheap_tld": 1,
     "deep_subdomains": 1,
@@ -303,6 +313,12 @@ def inspect(url, claims=None):
                          f"{service} hands out a name like this to anyone who signs up, "
                          f"so the words in front of it were chosen by whoever sent this"))
 
+    if owner in HANDOFF:
+        target = (path.strip("/").split("?")[0] or "").strip()
+        findings.append(("contact_handoff",
+                         f"the link moves the conversation to {target or 'another account'} "
+                         f"on {owner}, which is a handset, not a company"))
+
     if owner in SHORTENERS:
         findings.append(("shortener", f"{owner} hides where the link really goes"))
     elif shortener_shaped(host, owner, path):
@@ -343,6 +359,9 @@ def inspect(url, claims=None):
     for brand, legitimate in BRANDS.items():
         if owner in legitimate:
             findings = [f for f in findings if f[0] not in ("cheap_tld", "deep_subdomains")]
+            claimed = _claim_finding(claims, owner, label)
+            if claimed:
+                findings.append(claimed)
             return _result(raw, host, owner, findings)
 
         bounded = re.compile(BRAND_BOUNDARY.format(re.escape(brand)))
@@ -362,16 +381,32 @@ def inspect(url, claims=None):
                              f"{owner} is one or two letters away from {brand}"))
             break
 
-    if claims:
-        wanted = re.sub(r"[^a-z0-9]", "", _fold(claims))
-        known = {d for brand, domains in BRANDS.items() if brand in wanted for d in domains}
-        # The name has to be the whole address, not a word inside it. Scammers
-        # put the brand in the domain, which is the entire trick.
-        if wanted and wanted != re.sub(r"[^a-z0-9]", "", label) and owner not in known:
-            findings.append(("claimed_brand_mismatch",
-                             f"the message says it is from {claims}, but the address is {owner}"))
+    claimed = _claim_finding(claims, owner, label)
+    if claimed:
+        findings.append(claimed)
 
     return _result(raw, host, owner, findings)
+
+
+def _claim_finding(claims, owner, label):
+    """Does the company the message names actually own the address it sent?
+
+    Pulled out of the tail of inspect() because the brand loop returns early on
+    a domain it recognises, and that early return was skipping this: a message
+    claiming to be Mercado Livre with a wa.me link scored nothing, while the
+    same claim on any unknown domain scored. The trusted domain was doing the
+    silencing, which is a thing somebody can choose on purpose.
+    """
+    if not claims:
+        return None
+    wanted = re.sub(r"[^a-z0-9]", "", _fold(claims))
+    known = {d for brand, domains in BRANDS.items() if brand in wanted for d in domains}
+    # The name has to be the whole address, not a word inside it. Scammers
+    # put the brand in the domain, which is the entire trick.
+    if wanted and wanted != re.sub(r"[^a-z0-9]", "", label) and owner not in known:
+        return ("claimed_brand_mismatch",
+                f"the message says it is from {claims}, but the address is {owner}")
+    return None
 
 
 def _result(url, host, owner, findings):
@@ -475,6 +510,22 @@ def _self_test():
         ("nor is a real site with a subdomain",
          "shortener_shaped" not in codes("https://www.bradesco.com.br/Th3Page")),
         ("nor is a deep path", "shortener_shaped" not in codes("https://loja.com/p/aB3x9")),
+        ("a link that hands the conversation to a handset is named",
+         "contact_handoff" in codes("fale comigo em https://wa.me/4915510812682")),
+        ("telegram counts the same way",
+         "contact_handoff" in codes("me chama no t.me/suporte_oficial")),
+        ("a trusted domain no longer silences the claim check",
+         "claimed_brand_mismatch" in {f["code"] for link in
+          analyse("https://wa.me/4915510812682", claims="Mercado Livre")
+          for f in link["findings"]}),
+        ("but the brand that actually owns it raises nothing",
+         "claimed_brand_mismatch" not in {f["code"] for link in
+          analyse("https://wa.me/5511999999999", claims="WhatsApp")
+          for f in link["findings"]}),
+        ("nor does a real bank address under a claim for that bank",
+         "claimed_brand_mismatch" not in {f["code"] for link in
+          analyse("https://www.bradesco.com.br/", claims="Bradesco")
+          for f in link["findings"]}),
         ("a full stop is not part of the address",
          analyse("acesse http://x.top/login.")[0]["url"] == "http://x.top/login"),
         ("neither is a comma in the middle of a sentence",

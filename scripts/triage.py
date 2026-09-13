@@ -199,6 +199,11 @@ def _self_test():
             len(brief(rep)) < len(json.dumps(rep, indent=2)) / 4))(
             floor_for("olha https://xlk.cc/0kWoGK, entre agora",
                       feeds_override=fresh)[1])),
+        ("the job scam that came back clean now does not",
+         floor("Ola, sou o gerente geral do projeto Mercado Livre e estou contratando "
+               "uma equipe de meio periodo trabalhando em casa. Salario diario: "
+               "500-2000 reais. https://wa.me/4915510812682",
+               claims="Mercado Livre") == "Likely scam"),
         ("the floor never demands Scam",
          all(floor(t) != "Scam" for t in [
              "me manda o código agora, instale o anydesk, conta bloqueada, bit.ly/x",
