@@ -4,7 +4,7 @@ Forward her a message you are not sure about and she tells you whether it is a
 scam. She answers in Portuguese or English, for people who bank in Brazil or in
 the United States, and she never tells anyone that anything is safe.
 
-Most of what she does is code rather than prose. Ten modules and 315 checks
+Most of what she does is code rather than prose. Twelve modules and 406 checks
 decide what a reply is allowed to say; the model writes the sentences and two
 gates decide whether they go out.
 
@@ -82,7 +82,7 @@ Run her own suite inside the container:
 docker compose exec agent sh /opt/lyra/tests/run.sh
 ```
 
-Ten modules, 315 checks, all passing. Then check the feeds are downloading,
+Twelve modules, 406 checks, all passing. Then check the feeds are downloading,
 which is the part that degrades quietly when it breaks:
 
 ```bash
@@ -110,22 +110,38 @@ She should come back with `Isso é golpe, quase com certeza.`
 
 ### 6. Put her on the leaderboard
 
-Registration is a one-off from the host, using the credential you already have:
+Registration happens **inside the container**, not on the host. The client keeps
+the key the Index issues under `HERMES_HOME`, and that is the volume: register on
+the host and the key lands in your own home directory, where the reporter running
+in the container will never find it. It will then log "nothing reported this
+round" every hour, forever, which is what it does until an install has registered.
+
+The client is already in the image. It needs the Plow credential, which plow-init
+publishes into the container environment rather than the process environment, so
+that gets loaded first:
 
 ```bash
-curl -O https://raw.githubusercontent.com/plow-pbc/agent-index-client/f900ff144076f0a766584b6ec4d0993600779b16/standalone/agent_index_client.py
-set -a; . ./plow-credentials; set +a
-python3 agent_index_client.py --register --agent lyra \
-    --name "Lyra" --blurb "Tells you whether a message is a scam, in Portuguese or English."
-python3 agent_index_client.py status
+docker compose exec agent sh -c '
+for f in /run/s6/container_environment/*; do export "$(basename "$f")=$(cat "$f")"; done
+s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/lyra/agent_index_client.py \
+    --register --agent lyra --name "Lyra" \
+    --blurb "Tells you whether a message is a scam, in Portuguese or English."'
+```
+
+It runs as the `hermes` user on purpose: the reporter runs as that user too, and a
+key written by root is a key it cannot update. Check it took:
+
+```bash
+docker compose exec agent sh -c '
+for f in /run/s6/container_environment/*; do export "$(basename "$f")=$(cat "$f")"; done
+s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/lyra/agent_index_client.py status'
 ```
 
 `status` exits 0 when this install is registered, 3 when it is not, and 2 when it
 cannot tell. The `--agent` value has to match `AGENT_ID` in `compose.yml`, which
-ships as `lyra`; change both together if you want a different one.
-
-The container reports hourly on its own after that. To see what it would send
-without sending it, `python3 agent_index_client.py --agent lyra --dry-run`.
+ships as `lyra`; change both together if you want a different one. After that the
+container reports hourly on its own, and `--dry-run` in place of `--register`
+shows what it would send without sending it.
 
 ### 7. Know what a rebuild does and does not pick up
 
@@ -187,16 +203,26 @@ report template, which are read by someone under stress.
 ## How it fits together
 
 ```
-message ──> triage.py ──┬─> link_check.py      structure of the address
+message ──> triage.py ──┬─> link_check.py      the shape of the address
                         ├─> domain_age.py      how old the registration is
-                        ├─> reputation.py      feeds, matched locally
+                        ├─> reputation.py      feeds, matched on this machine
                         ├─> payment_check.py   boleto and Pix arithmetic
-                        └─> scam_signals.py    wording, both languages
+                        ├─> sender_check.py    what the dialling codes say
+                        └─> scam_signals.py    wording, in both languages
                                 │
                                 └─> a floor: the least cautious verdict allowed
 
 model writes the reply ──> verdict_gate.py ──> sent, or refused
 ```
+
+Two of those reach certainty rather than suspicion, and both live in
+`payment_check.py`: a boleto drawn on a different bank than the message claims
+was swapped, and one charging more than any amount the message mentions was
+swapped. Everything else weighs evidence.
+
+`sender_check.py` needs to be told which country the person banks in, because a
+number is only foreign relative to somewhere and the language does not say where.
+Without that it finds nothing rather than guessing.
 
 The gate recomputes the floor from the message itself rather than believing what
 the model says about it, so a reply can always be more careful than the evidence
@@ -204,8 +230,14 @@ and never less. The word "safe" does not exist in the codebase.
 
 When someone says they have already paid, a second path opens: `recovery_steps.py`
 for what to do and in what order, `recovery_gate.py` holding that reply to the
-script word for word, and `police_report.py` writing the report the bank will ask
-for a number from.
+script word for word and refusing any number that came from neither the script
+nor the person, and `police_report.py` writing the report the bank will ask for a
+number from.
+
+`language.py` decides which of the two languages someone wrote in, by counting
+function words, and both gates refuse a reply in a language the person did not
+use. It answers "I cannot tell" for a message that does not say, and a gate that
+gets that answer leaves the choice alone rather than refusing on a guess.
 
 ## Running the checks without Docker
 

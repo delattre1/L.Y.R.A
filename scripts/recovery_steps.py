@@ -102,7 +102,7 @@ STEPS = {
         ],
         "remote": [
             {"en": "Disconnect that device from wifi and mobile data, then uninstall the remote access program they had you install.",
-             "pt": "Desconecte o aparelho do wifi e dos dados, e desinstale o programa de acesso remoto que mandaram instalar."},
+             "pt": "Desconecte o aparelho do wifi e dos dados móveis, e desinstale o programa de acesso remoto que mandaram instalar."},
             {"en": "From a different device, change your bank password and your email password.",
              "pt": "De outro aparelho, troque a senha do banco e a senha do e-mail."},
             {"en": "Tell the bank someone had control of the device. If you are already calling them about money that left, say it in that same call. They watch the account differently once they know.",
@@ -121,8 +121,8 @@ STEPS = {
              "pt": "Ligue para o banco no número impresso no verso do cartão e diga que foi golpe. Peça o bloqueio e abra a contestação."},
             {"en": "If it went by Pix, ask your bank for the MED, the special return mechanism, by name. Sooner is better, and ask even if a day or two has already passed.",
              "pt": "Se foi Pix, peça ao banco o MED, o Mecanismo Especial de Devolução, por esse nome. Quanto antes melhor, e peça mesmo se já passou um dia ou dois."},
-            {"en": "File a police report. Most states let you do it online at the delegacia eletrônica, and the bank will ask for the number.",
-             "pt": "Registre o boletim de ocorrência. Quase todo estado tem delegacia eletrônica pelo site, e o banco vai pedir o número."},
+            {"en": "File a police report. Most states take it online, on their own civil police site, and the bank will ask for the number.",
+             "pt": "Registre o boletim de ocorrência. Quase todo estado aceita pela internet, no site da Polícia Civil do seu estado, e o banco vai pedir o número."},
         ],
         "card": [
             {"en": "Block the card in the bank app now, then call the number on the back and dispute every charge that is not yours.",
@@ -144,7 +144,7 @@ STEPS = {
         ],
         "remote": [
             {"en": "Disconnect that device from wifi and mobile data, then uninstall the remote access program they had you install.",
-             "pt": "Desconecte o aparelho do wifi e dos dados, e desinstale o programa de acesso remoto que mandaram instalar."},
+             "pt": "Desconecte o aparelho do wifi e dos dados móveis, e desinstale o programa de acesso remoto que mandaram instalar."},
             {"en": "From a different device, change your bank password and your email password.",
              "pt": "De outro aparelho, troque a senha do banco e a senha do e-mail."},
             {"en": "Tell the bank someone had control of the device, in the same call if you are already reporting the money.",
