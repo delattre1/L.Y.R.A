@@ -6,6 +6,30 @@ instead of being recalled under pressure. Where a step names a phone number, a
 site, or an agency, that name is fixed text and never something the model fills
 in from memory.
 
+Checked against the source rather than remembered, on 13 September 2026:
+
+    reportfraud.ftc.gov   answers, on an ftc.gov host
+    ic3.gov               answers, and calls itself the Internet Crime
+                          Complaint Center
+    identitytheft.gov     answers
+    the credit freeze     consumer.ftc.gov, in its own words: "Cost: Free.
+                          Contact all three of the credit bureaus -- Equifax,
+                          Experian, and TransUnion"
+    CVV 188               cvv.org.br, in its own words: "telefone 188 (24
+                          horas por dia e sem custo de ligacao)"
+    988                   988lifeline.org: "available 24/7/365. Your
+                          conversations are free and confidential", with call
+                          and text both offered
+    the MED               Banco Central publishes a FAQ entry under that name,
+                          so the mechanism is theirs and is called that
+
+What is NOT checked, because those pages render through JavaScript and could
+not be read: who opens a MED request and how long the window is, which states
+run a delegacia eletronica, and what Serasa's fraud alert actually does. The
+actions are still right -- call the bank, say it was a scam, file the report --
+but the mechanics behind them are mine and want a native reader before this is
+in front of anybody's mother.
+
     recovery_steps.py --country us --gave money,password
     recovery_steps.py --country br --gave code --lang pt
 """
@@ -95,8 +119,8 @@ STEPS = {
         "money": [
             {"en": "Call your bank on the number printed on the back of your card and say it was a scam. Ask them to block the payment and open a dispute.",
              "pt": "Ligue para o banco no número impresso no verso do cartão e diga que foi golpe. Peça o bloqueio e abra a contestação."},
-            {"en": "If it went by Pix, ask for the MED, the special return mechanism. Your bank has to open the request, and the first hours are the ones that count.",
-             "pt": "Se foi Pix, peça o MED, o Mecanismo Especial de Devolução. Quem abre o pedido é o seu banco, e as primeiras horas são as que valem."},
+            {"en": "If it went by Pix, ask your bank for the MED, the special return mechanism, by name. Sooner is better, and ask even if a day or two has already passed.",
+             "pt": "Se foi Pix, peça ao banco o MED, o Mecanismo Especial de Devolução, por esse nome. Quanto antes melhor, e peça mesmo se já passou um dia ou dois."},
             {"en": "File a police report. Most states let you do it online at the delegacia eletrônica, and the bank will ask for the number.",
              "pt": "Registre o boletim de ocorrência. Quase todo estado tem delegacia eletrônica pelo site, e o banco vai pedir o número."},
         ],
