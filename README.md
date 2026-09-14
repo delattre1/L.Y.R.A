@@ -1,6 +1,5 @@
-# L.Y.R.A
-
-**Legitimacy Yield & Risk Analysis.** Forward her a message you are not sure
+# L.Y.R.A - **Legitimacy Yield & Risk Analysis.** 
+Forward her a message you are not sure
 about and she tells you whether it is a scam.
 
 She answers in English or Portuguese, for people who bank in the United States or
@@ -134,9 +133,6 @@ are contradictions inside a number the message itself supplied.
 Sooner or later somebody writes to say they already paid. The verdict stops
 mattering, and a different path opens.
 
-```bash
-python3 scripts/recovery_steps.py --country us --gave remote,money --lang en
-```
 
 ```
 1. Disconnect that device from wifi and mobile data, then uninstall the remote
@@ -203,88 +199,6 @@ in Orlando writes in Portuguese and banks at Chase.
 
 Nothing forwarded is kept. Domains and phone numbers, yes, so the next one is
 recognised. The message itself, no.
-
-## What is not verified yet
-
-She is built, running, and registered on the Agent Index. What follows is what
-nobody has checked, not what has not been tried.
-
-Verified against the source on 13 September 2026: `reportfraud.ftc.gov`,
-`ic3.gov`, `identitytheft.gov`, the free credit freeze at all three bureaus,
-`CVV 188`, `988`, and the MED as Banco Central's own name for the mechanism.
-
-Still unverified, because those pages render through JavaScript:
-
-- who opens a Pix MED and how long the window is
-- which states run a delegacia eletrônica, and whether it takes a pasted
-  narrative in one field, which is the shape `police_report.py` produces
-- what Serasa's fraud alert actually does
-
-The Portuguese wants a native reader, especially `recovery_steps.py` and the
-report template, which are read by somebody under stress. And no real boleto has
-been through `payment_check.py`, only ones this repo generates.
-
-## Running the checks
-
-```bash
-bash tests/run.sh
-```
-
-Python 3, standard library only, no network needed. Fifteen modules, 521 checks.
-Every module tests its own contract, and a good many of the cases are turns that
-failed on the live agent rather than ones somebody imagined.
-
-## Running her yourself
-
-She runs on Plow's Hermes base image, reached through a phone line.
-
-```bash
-export PATH="$PWD/../plow-agents/bin:$PATH"
-plow-agents login                 # activation phrase, text it from the owning phone
-plow-agents lines                 # pick one whose status is free
-plow-agents mint ln_xxx           # writes ./plow-credentials, which Compose mounts
-docker compose up --build -d
-docker compose logs -f agent      # wait for "plow-init: configured ... as cht_"
-```
-
-Then text the line. Send it a real scam text if you have one, or this:
-
-```
-Your account will be locked today. Confirm at http://chase-secure.pages.dev
-```
-
-Four things will bite you, and all four have bitten somebody here.
-
-Mint before `up`. Run them the other way round and Docker creates a *directory*
-called `plow-credentials`; undo it with `docker compose down -v && rmdir
-plow-credentials`.
-
-The base image is pinned to a full SHA in the Dockerfile, and that repository has
-no `latest` tag by design. A 403 on the pull is stale registry credentials rather
-than a wrong tag, so `docker logout public.ecr.aws` and build again.
-
-Registration for the Agent Index happens inside the container, as the `hermes`
-user, with `HOME` pointed at the volume. The container environment ships
-`HOME=/root`, which that user cannot even read, so the client refuses to run
-rather than guess:
-
-```bash
-docker compose exec agent sh -c '
-for f in /run/s6/container_environment/*; do export "$(basename "$f")=$(cat "$f")"; done
-export HOME="$HERMES_HOME"
-s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/lyra/agent_index_client.py status'
-```
-
-Edits to `scripts/`, `skills/` and `SOUL.md` all reload on `docker compose up
---build -d`, and none of them needs the volume destroyed. The plow-agents README
-says a `SOUL.md` edit needs `down -v`; on this base it does not, and that was
-checked rather than assumed.
-
-What she actually runs is Plow's own base persona, about seventy lines of it,
-followed by ours. `SOUL.md` reads as an addition to an identity rather than the
-whole of one.
-
-When you are done with the line entirely:
 
 ```bash
 plow-agents revoke
