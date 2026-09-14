@@ -1,11 +1,12 @@
-# L.Y.R.A - **Legitimacy Yield & Risk Analysis.** 
-Forward her a message you are not sure
+# L.Y.R.A
+
+**Legitimacy Yield & Risk Analysis.** Forward her a message you are not sure
 about and she tells you whether it is a scam.
 
 She answers in English or Portuguese, for people who bank in the United States or
 in Brazil, and she never tells anyone that anything is safe.
 
-Most of what she does is code rather than prose. Fifteen modules and 521 checks
+Most of what she does is code rather than prose. Nineteen modules and 621 checks
 decide what a reply is allowed to say. The model writes the sentences; two gates
 decide whether they go out.
 
@@ -160,6 +161,51 @@ Nothing in that report is invented. A fact nobody gave comes out as a visible
 blank, and the identity block prints empty on purpose: no SSN, no CPF, no home
 address is asked for, accepted, or stored.
 
+## The scams going around, if they want them
+
+Everything above answers something somebody just asked. The digest is the one
+thing she sends on her own, and only if they said yes.
+
+She offers it once, at the end of the first real exchange and never before it.
+Three questions in one turn: whether they want it, how often, and whether they
+want their own country or everywhere translated into their language. Country is
+asked rather than guessed, because the language somebody types in does not say
+where they bank.
+
+```
+Two things worth knowing about this week.
+
+The FTC is warning that emergency season brings a wave of fake charities and
+fake contractors, who turn up asking for money before any work starts:
+https://consumer.ftc.gov/consumer-alerts/2026/09/national-preparedness-month-plan-ahead-avoid-scams
+
+And the FTC has fined a payment processor for letting fraudulent merchants
+through its screening, which is a reminder that a charge can look ordinary on
+the statement:
+https://www.ftc.gov/news-events/news/press-releases/2026/09/payment-processor-nuvei-must-implement-robust-merchant-screening-practices-pay-485-million-settle
+
+To stop these, reply STOP. To change how often, just say so.
+```
+
+The items come from consumer-protection and news feeds that somebody else
+publishes: the FTC, the FBI's IC3, Agência Brasil, g1. Nothing is fetched at
+send time on anybody's behalf, so asking for a digest tells no source who asked.
+
+`news_gate.py` refuses any address that was not in the feed items, a digest with
+no source link at all, the wrong language, reassurance, and anything too long for
+a text message. The last line is rendered by the gate rather than written by the
+model, so a message that arrives unasked can never turn up without a way to stop
+it.
+
+Stop means stopped, and it is a fact on disk rather than something remembered. It
+survives a restart, a rebuild and a context window that rolled over, and coming
+back restores exactly the settings they had.
+
+Two honest limits. The feeds carry corporate fraud stories alongside consumer
+scams, so the model has to drop what a person cannot fall for. And the gate
+checks that a link is real, not that the sentence above it describes that link,
+because once headlines are being translated there is nothing left to compare.
+
 ## How it fits together
 
 ```
@@ -175,6 +221,9 @@ message ──> triage.py ──┬─> injection_check.py text that argues with
 
 model writes the reply ──> verdict_gate.py ──> sent, or refused
                                   └─> pii_check.py   never echo a card or a CPF
+
+on a timer they chose ──> scam_news.py ──> news_gate.py ──> sent, or nothing
+                          news_prefs.py holds the off switch
 ```
 
 Five things are worth knowing about that picture.
@@ -200,7 +249,12 @@ in Orlando writes in Portuguese and banks at Chase.
 Nothing forwarded is kept. Domains and phone numbers, yes, so the next one is
 recognised. The message itself, no.
 
+## Running the checks
+
 ```bash
-plow-agents revoke
-docker compose down -v
+bash tests/run.sh
 ```
+
+Python 3, standard library only, no network needed. Nineteen modules, 621
+checks. Every module tests its own contract, and a good many of the cases are
+turns that failed on the live agent rather than ones somebody imagined.
