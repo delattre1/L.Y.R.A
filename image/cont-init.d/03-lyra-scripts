@@ -19,7 +19,12 @@ rm -rf "$HERMES_HOME/scripts"
 mkdir -p "$HERMES_HOME/scripts" "$LYRA_STATE" "$LYRA_STATE/feeds" \
     "$HERMES_HOME/.agent-index"
 cp /opt/lyra/scripts/*.py "$HERMES_HOME/scripts/"
+# link_check reads the suffix list from beside itself, so it travels with the
+# code rather than living in the state directory. Without it a bare address on
+# an unusual suffix stops being read; nothing breaks.
+cp /opt/lyra/scripts/*.txt "$HERMES_HOME/scripts/" 2>/dev/null || true
 chmod 0755 "$HERMES_HOME/scripts"/*.py
+chmod 0644 "$HERMES_HOME/scripts"/*.txt 2>/dev/null || true
 
 # The scripts run as the hermes user, and the state directory is written to.
 chown -R hermes:hermes "$HERMES_HOME/scripts" "$LYRA_STATE" \

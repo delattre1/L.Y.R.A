@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
-"""Where the message is coming from, and where it wants to take you.
+"""Where a message comes from, and where it wants to take you.
 
-A job offer from the general manager of Mercado Livre arrived from a Bangladeshi
-number and pointed at a German one. Every word of it was in Portuguese and every
-check we had stayed quiet, because the wording was careful and the link was
-wa.me, which is real. The contradiction was never in the text. It was in the
-dialling codes, and nothing was reading them.
+Two things are read: numbers written out with a country code, and the number
+inside a handoff link like wa.me, which is worth the most because it is where
+they are trying to move the conversation.
 
-A company that serves Brazil contacts Brazilians from Brazil. That is not a rule
-about scams, it is a fact about how companies buy phone numbers, which is why it
-holds for companies nobody has heard of and for scams invented next week.
+A company that serves Brazil contacts Brazilians from Brazil. That is a fact
+about how companies buy phone numbers, not a rule about scams, so it holds for
+companies nobody has heard of. It is what caught a job offer in perfect
+Portuguese sent from a Bangladeshi number and pointing at a German one, which
+every other check in the project read as clean.
 
-Two things are read here. Numbers written out with their country code, and the
-number inside a handoff link, which is the one that matters most: it is where
-they are trying to move the conversation to.
-
-Which country is home has to be told to us. Language does not say it -- somebody
-in Orlando writes in Portuguese and banks at Chase -- so when nobody says, this
-finds nothing rather than guessing.
+Which country is home has to be told to us, and it can be any country in the
+dialling table. Language does not say it: somebody in Orlando writes in
+Portuguese and banks at Chase. With nobody saying, this finds nothing rather
+than guessing.
 
     sender_check.py --country br < message.txt
     sender_check.py --self-test
@@ -28,59 +25,19 @@ import json
 import re
 import sys
 
-HOME_CODE = {"br": "55", "us": "1"}
+import countries
+from countries import country_of      # re-exported: this is where callers look
 
-# ITU dialling codes. Reference data rather than a list of anybody's enemies:
-# it does not go stale, and a code that is missing produces "a foreign number"
-# instead of a wrong one.
-COUNTRIES = {
-    "1": "the United States or Canada", "7": "Russia or Kazakhstan",
-    "20": "Egypt", "27": "South Africa", "30": "Greece", "31": "the Netherlands",
-    "32": "Belgium", "33": "France", "34": "Spain", "36": "Hungary",
-    "39": "Italy", "40": "Romania", "41": "Switzerland", "43": "Austria",
-    "44": "the United Kingdom", "45": "Denmark", "46": "Sweden", "47": "Norway",
-    "48": "Poland", "49": "Germany", "51": "Peru", "52": "Mexico", "53": "Cuba",
-    "54": "Argentina", "55": "Brazil", "56": "Chile", "57": "Colombia",
-    "58": "Venezuela", "60": "Malaysia", "61": "Australia", "62": "Indonesia",
-    "63": "the Philippines", "64": "New Zealand", "65": "Singapore",
-    "66": "Thailand", "81": "Japan", "82": "South Korea", "84": "Vietnam",
-    "86": "China", "90": "Turkey", "91": "India", "92": "Pakistan",
-    "94": "Sri Lanka", "95": "Myanmar", "98": "Iran", "212": "Morocco",
-    "213": "Algeria", "216": "Tunisia", "233": "Ghana", "234": "Nigeria",
-    "237": "Cameroon", "244": "Angola", "254": "Kenya", "255": "Tanzania",
-    "256": "Uganda", "263": "Zimbabwe", "351": "Portugal", "352": "Luxembourg",
-    "353": "Ireland", "358": "Finland", "359": "Bulgaria", "370": "Lithuania",
-    "371": "Latvia", "372": "Estonia", "375": "Belarus", "380": "Ukraine",
-    "381": "Serbia", "385": "Croatia", "386": "Slovenia", "420": "Czechia",
-    "421": "Slovakia", "502": "Guatemala", "503": "El Salvador",
-    "504": "Honduras", "505": "Nicaragua", "506": "Costa Rica", "507": "Panama",
-    "509": "Haiti", "591": "Bolivia", "593": "Ecuador", "595": "Paraguay",
-    "598": "Uruguay", "852": "Hong Kong", "855": "Cambodia", "856": "Laos",
-    "880": "Bangladesh", "886": "Taiwan", "962": "Jordan", "964": "Iraq",
-    "965": "Kuwait", "966": "Saudi Arabia", "971": "the United Arab Emirates",
-    "972": "Israel", "974": "Qatar", "977": "Nepal", "994": "Azerbaijan",
-    "995": "Georgia", "998": "Uzbekistan",
-}
-
-# The number inside a link that moves the conversation. This is the destination,
-# not the sender, and it is the one worth the most.
+# The number inside a link that moves the conversation: the destination, not the
+# sender, and the one worth the most.
 HANDOFF_NUMBER = re.compile(
     r"(?:wa\.me/|api\.whatsapp\.com/send\?phone=|t\.me/\+)(\d{8,15})", re.IGNORECASE)
 
-# Written out with its country code. Without the plus there is no way to know
-# where a number is from, so without the plus this says nothing.
+# Written out with its country code. No plus, no way to know where it is from,
+# so no finding.
 WRITTEN_NUMBER = re.compile(r"\+\s?((?:\d[\s.()\-]{0,2}){7,16}\d)")
 
 WEIGHTS = {"foreign_handoff": 3, "foreign_number": 2}
-
-
-def country_of(digits):
-    """Longest dialling code that starts this number, and whose it is."""
-    for size in (3, 2, 1):
-        code = digits[:size]
-        if code in COUNTRIES:
-            return code, COUNTRIES[code]
-    return None, None
 
 
 def numbers_in(text):
@@ -102,9 +59,9 @@ def numbers_in(text):
 
 def analyse(text, country=None):
     """What the dialling codes say, once somebody has said which country is home."""
-    if country not in HOME_CODE:
+    home = countries.dialling_code(country) if country else None
+    if not home:
         return []                      # nobody said, so nothing is known
-    home = HOME_CODE[country]
     findings = []
     for digits, kind in numbers_in(text):
         code, name = country_of(digits)
@@ -163,6 +120,19 @@ def _self_test():
          "foreign_handoff" in codes("me chama em t.me/+491551081268", "br")),
         ("the same number twice is one finding",
          len(analyse("+4915510812682 e tambem +49 15510812682", "br")) == 1),
+        # Home used to mean Brazil or the United States and nothing else, so a
+        # person banking anywhere else was told the same thing as a person who
+        # had said nothing at all.
+        ("somebody banking in portugal is read like anybody else",
+         codes("me chama em https://wa.me/4915510812682", "pt") == ["foreign_handoff"]),
+        ("and their own numbers are not foreign to them",
+         codes("me liga no +351 912 345 678", "pt") == []),
+        ("mexico is home to somebody",
+         codes("llamame al +52 55 1234 5678", "mx") == []),
+        ("a canadian number is not foreign to an american, because the code is shared",
+         codes("call me on +1 416 555 1234", "us") == []),
+        ("a country nobody listed still finds nothing rather than guessing",
+         codes("me liga no +55 11 98765-4321", "zz") == []),
     ]
     for name, passed in cases:
         print(f"{'pass' if passed else 'FAIL'}  {name}")
@@ -172,8 +142,12 @@ def _self_test():
 
 
 def main():
+    """Read a message on stdin and print what its numbers say."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--country", type=str.lower, choices=sorted(HOME_CODE))
+    parser.add_argument("--country", type=str.lower, metavar="CC",
+                        help="ISO code of the country the person banks in, "
+                             "such as br, us or pt. Unknown codes find nothing "
+                             "rather than guessing.")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:

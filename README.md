@@ -4,7 +4,7 @@ Forward her a message you are not sure about and she tells you whether it is a
 scam. She answers in Portuguese or English, for people who bank in Brazil or in
 the United States, and she never tells anyone that anything is safe.
 
-Most of what she does is code rather than prose. Twelve modules and 406 checks
+Most of what she does is code rather than prose. Fifteen modules and 521 checks
 decide what a reply is allowed to say; the model writes the sentences and two
 gates decide whether they go out.
 
@@ -82,7 +82,7 @@ Run her own suite inside the container:
 docker compose exec agent sh /opt/lyra/tests/run.sh
 ```
 
-Twelve modules, 406 checks, all passing. Then check the feeds are downloading,
+Fifteen modules, 521 checks, all passing. Then check the feeds are downloading,
 which is the part that degrades quietly when it breaks:
 
 ```bash
@@ -118,15 +118,24 @@ round" every hour, forever, which is what it does until an install has registere
 
 The client is already in the image. It needs the Plow credential, which plow-init
 publishes into the container environment rather than the process environment, so
-that gets loaded first:
+that gets loaded first. That same environment also carries `HOME=/root`, which is
+wrong for this: the key belongs on the volume, and as the `hermes` user `/root` is
+not even readable, so the client refuses to run rather than guess. Point `HOME` at
+`HERMES_HOME` and both problems go away, which is exactly what the hourly service
+does before it reports:
 
 ```bash
 docker compose exec agent sh -c '
 for f in /run/s6/container_environment/*; do export "$(basename "$f")=$(cat "$f")"; done
+export HOME="$HERMES_HOME"
 s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/lyra/agent_index_client.py \
     --register --agent lyra --name "Lyra" \
-    --blurb "Tells you whether a message is a scam, in Portuguese or English."'
+    --blurb "Forward a message that feels wrong and get a straight answer: scam, likely scam, cannot tell, or no red flags found. The word safe is not one of the options, and that is on purpose."'
 ```
+
+The blurb is the one line the Index page shows under the name, and it is public.
+Keep the apostrophes out of it: the whole command is wrapped in single quotes, and
+one apostrophe ends the string early.
 
 It runs as the `hermes` user on purpose: the reporter runs as that user too, and a
 key written by root is a key it cannot update. Check it took:
@@ -134,11 +143,13 @@ key written by root is a key it cannot update. Check it took:
 ```bash
 docker compose exec agent sh -c '
 for f in /run/s6/container_environment/*; do export "$(basename "$f")=$(cat "$f")"; done
+export HOME="$HERMES_HOME"
 s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/lyra/agent_index_client.py status'
 ```
 
 `status` exits 0 when this install is registered, 3 when it is not, and 2 when it
-cannot tell. The `--agent` value has to match `AGENT_ID` in `compose.yml`, which
+cannot tell; registered, it prints the install id, and the key sits in
+`$HERMES_HOME/.agent-index.json` where a recreated container still finds it. The `--agent` value has to match `AGENT_ID` in `compose.yml`, which
 ships as `lyra`; change both together if you want a different one. After that the
 container reports hourly on its own, and `--dry-run` in place of `--register`
 shows what it would send without sending it.
@@ -177,33 +188,29 @@ docker compose down -v
 
 ## What is not verified yet
 
-**Nothing here has been built.** The machine this was written on has no working
-Docker, so the image is correct as far as shell syntax, line endings, the s6
-service shape checked against the base's own, and a boot simulated against a
-stand-in filesystem. The first real build is the first real test.
+She is built, running, and registered on the Agent Index. What follows is what
+nobody has checked, not what has not been tried.
 
-**The facts in `recovery_steps.py` are mine, not a lawyer's.** That module names
-agencies and procedures to someone who has just lost money, so before this goes
-in front of anyone who is not you, each line wants checking against a primary
-source:
+Verified against the source on 13 September 2026: `reportfraud.ftc.gov`,
+`ic3.gov`, `identitytheft.gov`, the free credit freeze at all three bureaus,
+`CVV 188`, `988`, and the MED as Banco Central's own name for the mechanism.
 
-- `reportfraud.ftc.gov`, `ic3.gov`, `identitytheft.gov` all resolve and are the
-  right paths for consumer fraud, internet crime, and identity theft
-- a credit freeze really is free at all three bureaus
-- the Pix MED is opened by the victim's own bank rather than by the victim, and
-  the window is what the step implies
-- `988` and `CVV 188`, which are the two numbers in the codebase with the least
-  room to be wrong
-- whether a state's delegacia eletrônica takes a pasted narrative in one field,
-  because `police_report.py` produces one block on that assumption
+Still unverified, because those pages render through JavaScript:
 
-**The Portuguese wants a native reader.** Especially `recovery_steps.py` and the
-report template, which are read by someone under stress.
+- who opens a Pix MED and how long the window is
+- which states run a delegacia eletrônica, and whether it takes a pasted
+  narrative in one field, which is the shape `police_report.py` produces
+- what Serasa's fraud alert actually does
+
+The Portuguese wants a native reader, especially `recovery_steps.py` and the
+report template, which are read by somebody under stress. And no real boleto has
+been through `payment_check.py`, only ones this repo generates.
 
 ## How it fits together
 
 ```
-message ──> triage.py ──┬─> link_check.py      the shape of the address
+message ──> triage.py ──┬─> injection_check.py text that argues with its reader
+                        ├─> link_check.py      the shape of the address
                         ├─> domain_age.py      how old the registration is
                         ├─> reputation.py      feeds, matched on this machine
                         ├─> payment_check.py   boleto and Pix arithmetic
@@ -213,31 +220,35 @@ message ──> triage.py ──┬─> link_check.py      the shape of the addr
                                 └─> a floor: the least cautious verdict allowed
 
 model writes the reply ──> verdict_gate.py ──> sent, or refused
+                                  └─> pii_check.py   never echo a card or a CPF
 ```
 
-Two of those reach certainty rather than suspicion, and both live in
-`payment_check.py`: a boleto drawn on a different bank than the message claims
-was swapped, and one charging more than any amount the message mentions was
-swapped. Everything else weighs evidence.
+Five things are worth knowing about that picture.
 
-`sender_check.py` needs to be told which country the person banks in, because a
-number is only foreign relative to somewhere and the language does not say where.
-Without that it finds nothing rather than guessing.
+The message is attacker-written text, so `injection_check.py` reads it for the
+shapes an injection takes and weighs them like any other evidence. A line telling
+the reader to ignore its instructions raises the floor before the model sees it,
+which is the one defence that does not degrade over a long conversation.
 
-The gate recomputes the floor from the message itself rather than believing what
-the model says about it, so a reply can always be more careful than the evidence
-and never less. The word "safe" does not exist in the codebase.
+Only two checks reach certainty rather than suspicion, and both are in
+`payment_check.py`: a boleto drawn on a different bank than the message claims,
+and one charging more than any amount the message mentions. Everything else
+weighs evidence.
 
-When someone says they have already paid, a second path opens: `recovery_steps.py`
+`sender_check.py` has to be told which country the person banks in. A number is
+foreign only relative to somewhere, and the language does not say where. Without
+it, nothing is claimed. It reads the dialling and language tables out of
+`countries.py`.
+
+The gate recomputes the floor from the message rather than believing the model,
+so a reply can be more careful than the evidence and never less. The word "safe"
+does not exist in the codebase.
+
+When someone says they already paid, a second path opens: `recovery_steps.py`
 for what to do and in what order, `recovery_gate.py` holding that reply to the
-script word for word and refusing any number that came from neither the script
-nor the person, and `police_report.py` writing the report the bank will ask for a
-number from.
-
-`language.py` decides which of the two languages someone wrote in, by counting
-function words, and both gates refuse a reply in a language the person did not
-use. It answers "I cannot tell" for a message that does not say, and a gate that
-gets that answer leaves the choice alone rather than refusing on a guess.
+script word for word, and `police_report.py` writing the report the bank will
+want a number from. `language.py` decides which language to answer in, and both
+gates refuse a reply in a language the person did not use.
 
 ## Running the checks without Docker
 

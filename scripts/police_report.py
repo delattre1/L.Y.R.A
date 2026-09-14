@@ -1,25 +1,17 @@
 #!/usr/bin/env python3
-"""The written report, so that writing it is not the thing that stops them.
+"""The written report, so that writing it is not what stops them.
 
-Someone who has just been robbed has to produce a dated, chronological statement
-for the police, in the worst hour of their month, usually into a web form that
-times out. A lot of people give up there, and the bank then refuses the dispute
-for want of a report number. This assembles the statement from what they have
-already said, in the shape the form expects.
+Assembles a dated, chronological statement out of what the person already said,
+in the shape the police form expects. A lot of people give up at that form, and
+the bank then refuses the dispute for want of a report number.
 
-Two rules hold it together.
+Nothing is invented: a fact nobody gave us comes out as a visible blank. The
+person signs this, and a confident sentence we made up is a false statement with
+their name under it. Their account and the automated checks stay in separate
+sections, because one is testimony and the other is a program's output.
 
-Nothing is invented. A fact nobody gave us comes out as a visible blank, never as
-a plausible guess. A report is signed by the person filing it, and a confident
-sentence we made up is a false statement with their name under it.
-
-Their account and the automated checks stay in separate sections. One is
-testimony and the other is a program's output, and whoever reads it is entitled
-to know which is which.
-
-The identity block is always blank. We do not ask for a CPF, an RG, an SSN, or a
-home address, we do not accept them here, and we do not store them. Those go on
-the form, written by the person, once.
+The identity block is always blank. No CPF, RG, SSN or address is asked for,
+accepted here, or stored.
 
     police_report.py --country br < facts.json
     police_report.py --country us --lang en < facts.json
@@ -30,7 +22,7 @@ import argparse
 import json
 import sys
 
-DEFAULT_LANG = {"us": "en", "br": "pt"}
+import countries
 
 FILL = {"pt": "PREENCHER", "en": "FILL IN"}
 
@@ -158,6 +150,17 @@ WHERE = {
                   "ic3.gov if it started online.")},
 }
 
+# A country is supported when every section of the report has something to say
+# about it, which is a thing the tables above already know. It used to be a
+# separate two-line map, and a separate map is a map that can disagree: a
+# country listed there but missing from one of these would have been accepted
+# and then crashed halfway through writing somebody's statement.
+SUPPORTED = sorted(
+    set(IDENTITY) & set(WHERE)
+    & set.intersection(*(set(ask) for ask in ASK_BY_COUNTRY.values())))
+
+DEFAULT_LANG = {country: countries.default_lang(country) for country in SUPPORTED}
+
 CLOSING = {
     "pt": ("A classificação do crime é da autoridade policial. Este documento descreve "
            "os fatos."),
@@ -167,6 +170,7 @@ CLOSING = {
 
 
 def _given(facts, key):
+    """One fact the person actually gave us, or None."""
     value = facts.get(key)
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -174,6 +178,7 @@ def _given(facts, key):
 
 
 def _or_blank(facts, key, lang, country):
+    """The fact, or a visible blank saying what belongs there."""
     asked = ASK_BY_COUNTRY[key][country] if key in ASK_BY_COUNTRY else ASK[key]
     return _given(facts, key) or f"[{FILL[lang]}: {asked[lang]}]"
 
@@ -191,7 +196,7 @@ def _evidence_lines(facts):
 
 def build(country, facts, lang=None):
     """Return the report as plain text, with a blank wherever we were not told."""
-    if country not in DEFAULT_LANG:
+    if country not in SUPPORTED:
         raise ValueError(f"unknown country: {country!r}")
     lang = lang or DEFAULT_LANG[country]
     blank = f"[{FILL[lang]}: "
@@ -292,6 +297,10 @@ def _self_test():
          "routing number" in build("us", {}, lang="pt")),
         ("the date is asked for as a date, not as yesterday",
          "yesterday" in build("us", {}) and "ontem" in build("br", {})),
+        ("a country counts as supported only when every section has it",
+         set(SUPPORTED) == set(IDENTITY) & set(WHERE) & set(ASK_BY_COUNTRY["instrument"])),
+        ("and its language comes off the country, not a second table",
+         DEFAULT_LANG == {"br": "pt", "us": "en"}),
         ("an unknown country is refused", _raises(lambda: build("xx", {}))),
     ]
     for name, passed in cases:
@@ -302,6 +311,7 @@ def _self_test():
 
 
 def _raises(call):
+    """Whether this call refuses the country."""
     try:
         call()
     except ValueError:
@@ -310,8 +320,9 @@ def _raises(call):
 
 
 def main():
+    """Read the facts on stdin and print the report."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--country", choices=sorted(DEFAULT_LANG))
+    parser.add_argument("--country", type=str.lower, choices=SUPPORTED)
     parser.add_argument("--lang", choices=("en", "pt"))
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()

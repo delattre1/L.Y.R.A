@@ -5,10 +5,9 @@ A scam has to ask for something, and it has to stop you thinking long enough to
 hand it over. Those two moves leave fingerprints in the wording, and matching
 wording is a job for a table, not for a model that can be argued with.
 
-Patterns are matched against folded text: lowercase, accents removed, so
-"codigo" catches "código". Portuguese and English carry the same weight, because
-the same agent answers a mother in Belo Horizonte and a father in Ohio, and a
-scam text is written in the language of whoever it is aimed at.
+Patterns run against folded text, so "codigo" catches "código". Portuguese and
+English carry the same weight: the same agent answers a mother in Belo Horizonte
+and a father in Ohio.
 
     scam_signals.py --self-test
     echo "sua conta sera bloqueada em 30 minutos" | scam_signals.py
@@ -38,12 +37,9 @@ SIGNALS = [
         r"card number|full card details|\bssn\b|social security number",
         r"(sign|log) ?in (here|now|below) to (verify|confirm|restore|unlock)",
     ]),
-    # Nobody legitimate hands you an Android package over a chat. Shops send you
-    # to a store, banks send you to a store, couriers send you to a store. A file
-    # that installs itself is the whole attack: once it is on the handset it
-    # reads the SMS, draws over the bank app, and the money leaves from the
-    # phone's own address. This is the dominant vector in Brazil right now and
-    # it had no signal at all.
+    # Nobody legitimate hands you an Android package over a chat. Once the file is
+    # on the handset it reads the SMS, draws over the bank app, and the money
+    # leaves from the phone's own address. The dominant vector in Brazil now.
     ("apk_file", 3, "hands over an app as a file, which no company does", [
         r"\.apk\b|apk\b[^.]{0,12}(anexo|enviado|baixe|instale)",
         r"fontes desconhecidas|origens desconhecidas|unknown sources",
@@ -89,9 +85,8 @@ SIGNALS = [
         r"\bzelle\b|\bvenmo\b|cash ?app|\bwire (transfer|the money)\b|western union|money ?gram",
         r"(send|transfer) (the )?(money|funds|payment) (to|via|using)",
     ]),
-    # A greeting on its own proves nothing: real children text their mothers too.
-    # The tell is the greeting arriving together with an explanation for why the
-    # number changed, so only the explanation is matched here.
+    # A greeting proves nothing, since real children text their mothers too. The
+    # tell is the explanation for why the number changed, so only that is matched.
     ("relative_new_number", 2, "someone claims to be family from a number you do not know", [
         r"(mudei|troquei) de (n[uú]mero|celular|chip)|(perdi|quebrei) (o )?(meu )?celular",
         r"(esse|este) [eé] (o )?meu (novo )?n[uú]mero|meu n[uú]mero novo",
@@ -143,8 +138,7 @@ SIGNALS = [
         r"sal[áa]rio di[áa]rio|renda di[áa]ria|ganho di[áa]rio|pagamento di[áa]rio",
         r"liquidad[oa]s? no mesmo dia|pag[oa]s? no mesmo dia|receb[ae] no mesmo dia",
         r"r?\$?\s*\d{2,5}\s*[-a]\s*\d{2,5}[^.\n]{0,14}(por dia|ao dia|di[áa]ri)",
-        # Anchored on money on purpose: "por dia" alone is how a mother writes
-        # about medication, and "tome 10 gotas por dia" is not a job offer.
+        # Anchored on money: "tome 10 gotas por dia" is not a job offer.
         r"r?\$\s*\d{2,5}[^.\n]{0,14}(por dia|ao dia)\b",
         r"\d{2,5}\s*(reais|d[óo]lares|dolares)[^.\n]{0,14}(por dia|ao dia)\b",
         r"(daily|per[- ]day) (pay|income|earnings|salary)|paid (out )?same day",
@@ -175,6 +169,7 @@ def fold(text):
 
 
 def analyse(text):
+    """Every wording signal in the text, at most one per signal."""
     folded = fold(text)
     hits = []
     for name, weight, why, patterns in COMPILED:

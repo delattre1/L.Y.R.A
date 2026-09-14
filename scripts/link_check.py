@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """What a link says versus where it actually goes.
 
-Nothing here talks to the network. Everything is structural: the shape of the
-host, how it compares to the brand the message is claiming, whether the address
-is hiding its destination. Registration age needs a lookup and lives in
-domain_age.py, which is allowed to fail.
+Nothing here touches the network. Everything is structural: the shape of the
+host, how it compares to the brand the message claims, whether the address is
+hiding its destination. Registration age needs a lookup and lives in
+domain_age.py.
 
-Most of these checks know nothing about any particular company. A host with
-".com." buried in the middle of it is spoofing something whether or not we have
-heard of it, and so is a name with a zero standing in for an O. The brand table
-below is the exception, and it earns its place mainly by keeping real addresses
-quiet rather than by catching fake ones.
+Most of these checks know nothing about any particular company. A ".com." buried
+in the middle of a host is spoofing something whether or not we have heard of it,
+and so is a zero standing in for an O. The brand table is the exception, and it
+earns its place mainly by keeping real addresses quiet.
 
     link_check.py --self-test
     echo "click http://bradesco.seguro-app.top/login" | link_check.py
 """
 
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -29,11 +29,10 @@ MULTI_SUFFIXES = {
     "co.jp", "co.za", "com.co",
 }
 
-# Services that hand out a subdomain to anyone who signs up. The registrable
-# domain here is years old and belongs to the hosting company, so asking a
-# registry how old it is answers a question nobody asked: the name the victim
-# was actually sent was created minutes ago and is not in any registry at all.
-# Treated as suffixes, so the owner becomes the whole name the person got.
+# Services that hand a subdomain to anyone who signs up. Treated as suffixes, so
+# the owner is the whole name the person got. Asking a registry how old the
+# service is answers a question nobody asked: the name they were sent is minutes
+# old and in no registry.
 FREE_HOSTS = {
     "pages.dev", "workers.dev", "r2.dev", "trycloudflare.com",
     "web.app", "firebaseapp.com", "appspot.com", "run.app",
@@ -45,10 +44,9 @@ FREE_HOSTS = {
     "azurewebsites.net", "s3.amazonaws.com", "blob.core.windows.net",
 }
 
-# Brand token to the domains that brand actually uses. A token found anywhere in
-# a URL whose owner is not on this list is someone borrowing the name. Brazil and
-# the United States get equal weight here, because a scam text is written for the
-# country it is sent to and the same person may bank in both.
+# Brand token to the domains that brand really uses. The token anywhere in a URL
+# whose owner is not listed is someone borrowing the name. Brazil and the United
+# States get equal weight: the same person may bank in both.
 BRANDS = {
     # United States
     "chase": {"chase.com"},
@@ -125,23 +123,16 @@ SHORTENERS = {
     "reurl.cc", "lnkd.in", "ow.ly", "buff.ly", "s.id", "urlz.fr", "acortar.link",
 }
 
-# A list of shorteners has the same problem the brand table had: it only knows
-# the ones somebody wrote down, and the one in front of you is the one nobody
-# did. reurl.cc got a real message past the checks scoring nothing.
-#
-# The shape is checkable without the name. A shortener is a bare host with no
-# subdomain and a single short path segment that was generated rather than
-# written: it carries a digit and a letter and mixes case, which is what base62
-# output looks like and what a word on a real site does not. Requiring all three
-# gives up the all-lowercase codes rather than flagging /v2beta on somebody's
-# documentation, which is the right way round for a check that only ever adds
-# suspicion.
+# A list only knows the shorteners somebody wrote down, and reurl.cc got a real
+# message through scoring nothing. The shape is checkable without the name: a
+# bare host, one short path segment carrying a digit and a letter and mixed case,
+# which is what base62 looks like and a word on a real site does not. All three
+# are required, so all-lowercase codes are missed rather than /v2beta flagged.
 SHORT_CODE_PATH = re.compile(r"^/([A-Za-z0-9_-]{4,12})/?$")
 
-# Links whose entire purpose is to move the conversation onto a number or
-# account you cannot see. The domains are real and that is the point: routing a
-# victim through wa.me borrows WhatsApp's own name to get them off the channel
-# where the message could be reported, onto a handset that is thrown away after.
+# Links whose whole purpose is to move the conversation onto a number you cannot
+# see. The domains are real, and that is the point: wa.me borrows WhatsApp's own
+# name to get someone off a channel where the message could be reported.
 HANDOFF = frozenset({
     "wa.me", "api.whatsapp.com", "chat.whatsapp.com",
     "t.me", "telegram.me", "telegram.dog", "m.me", "ig.me",
@@ -250,29 +241,67 @@ def registrable(host):
     return ".".join(labels[-2:])
 
 
-# Punctuation that ends the sentence rather than the address. Written inline in
-# prose, a link arrives as "acesse http://x.top/login." and the period is not
-# part of the path -- which matters beyond tidiness, because a feed match is an
-# exact string comparison and a trailing comma misses it.
+# Punctuation that ends the sentence, not the address: "acesse http://x.top/a."
+# Not tidiness. A feed match is an exact string comparison, so a trailing comma
+# misses it.
 TRAILING = ".,;:!?'\"')]}>"
 
 
 def find_urls(text):
+    """Every address in the text, and nothing that is only punctuation.
+
+    Written with http:// in front, anything counts. Written bare it needs a
+    suffix that really exists, plus one of: a suffix people write bare in prose
+    (the short list below), a www, or a path. So loja-x.store/promo is a link
+    and "manda pra mim.Obrigado/abraco" is not.
+    """
     found = []
     for match in URL_RE.finditer(text):
-        authority = match.group("authority")
-        tld = authority.rsplit(".", 1)[-1].split(":")[0]
-        if not match.group("scheme") and tld.lower() not in _KNOWN_TLDS:
-            continue  # a sentence like "R$ 4.500,00 hoje" is not a link
+        if not match.group("scheme"):
+            authority = match.group("authority")
+            tld = authority.rsplit(".", 1)[-1].split(":")[0].lower()
+            path = (match.group("path") or "").rstrip(TRAILING)
+            if tld not in _TLDS:
+                continue
+            if (tld not in _BARE_TLDS
+                    and not authority.lower().startswith("www.")
+                    and len(path) < 2):
+                continue
         found.append(match.group(0).rstrip(TRAILING))
     return found
 
 
-_KNOWN_TLDS = {
+def _load_tlds():
+    """Every suffix that exists, from IANA's list, shipped beside this file.
+
+    .store and .obrigado are both ordinary words, and only the registry tells
+    them apart. Refreshed by hand:
+
+        curl -s https://data.iana.org/TLD/tlds-alpha-by-domain.txt > scripts/tlds.txt
+
+    A missing file costs coverage, never correctness: the short list below still
+    works and everything else falls back to needing a scheme.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tlds.txt")
+    try:
+        with open(path, encoding="ascii", errors="replace") as handle:
+            found = {line.strip().lower() for line in handle
+                     if line.strip() and not line.startswith("#")}
+    except OSError:
+        return None
+    return found or None
+
+
+# Suffixes common enough that a bare one reads as an address rather than as a
+# missing space after a full stop. Short on purpose: each entry is a word that
+# can no longer end a sentence, and the path rule covers the rest for free.
+_BARE_TLDS = {
     "br", "com", "net", "org", "gov", "edu", "io", "co", "me", "app", "dev",
     "info", "biz", "tv", "cc", "ly", "gl", "at", "to", "pt", "us", "uk", "de",
     "sh",
 } | CHEAP_TLDS
+
+_TLDS = _load_tlds() or _BARE_TLDS
 
 
 def inspect(url, claims=None):
@@ -391,11 +420,10 @@ def inspect(url, claims=None):
 def _claim_finding(claims, owner, label):
     """Does the company the message names actually own the address it sent?
 
-    Pulled out of the tail of inspect() because the brand loop returns early on
-    a domain it recognises, and that early return was skipping this: a message
-    claiming to be Mercado Livre with a wa.me link scored nothing, while the
-    same claim on any unknown domain scored. The trusted domain was doing the
-    silencing, which is a thing somebody can choose on purpose.
+    Separate from inspect() because the brand loop returns early on a domain it
+    recognises, and that early return used to skip this: a wa.me link claiming to
+    be Mercado Livre scored nothing. A trusted domain was silencing the claim,
+    which is something somebody can choose on purpose.
     """
     if not claims:
         return None
@@ -410,6 +438,7 @@ def _claim_finding(claims, owner, label):
 
 
 def _result(url, host, owner, findings):
+    """One link's findings, with duplicate codes dropped."""
     seen, unique = set(), []
     for code, detail in findings:
         if code not in seen:
@@ -420,6 +449,7 @@ def _result(url, host, owner, findings):
 
 
 def analyse(text, claims=None):
+    """Inspect every address in the text."""
     return [inspect(u, claims) for u in find_urls(text)]
 
 
@@ -535,6 +565,37 @@ def _self_test():
          "shortener_shaped" in codes("olha https://xlk.cc/0kWoGK, entre agora")),
         ("a closing bracket is not part of it either",
          analyse("(veja http://x.top/a)")[0]["url"] == "http://x.top/a"),
+        # A bare address on a suffix nobody listed used to be invisible to every
+        # check in this file, which is the one failure that costs the whole
+        # reply rather than one finding.
+        ("a path makes an address out of a suffix nobody listed",
+         find_urls("pague em loja-fake.store/promo hoje") == ["loja-fake.store/promo"]),
+        ("and the checks then run on it",
+         "many_hyphens" in codes("pague em conta-segura-agora.quest/pix")),
+        ("a www in front is enough on its own",
+         find_urls("acesse www.banco-falso.tech") == ["www.banco-falso.tech"]),
+        ("and without it the same name needs a path",
+         find_urls("acesse banco-falso.tech") == []),
+        ("a missing space after a full stop is still a sentence",
+         find_urls("olha isso tudo.bom") == [] and find_urls("ok.Obrigado") == []),
+        ("even when the word after it is a real suffix",
+         find_urls("that sentence.In the next line") == []),
+        ("a file somebody names is not an address",
+         find_urls("rode scripts/triage.py") == []),
+        # The path rule on its own reads any word after a dot as a suffix, and
+        # these are how people actually type. Only the registry's list tells
+        # .store from .obrigado, because both are ordinary words.
+        ("a word is not a suffix just because it could be one",
+         find_urls("manda pra mim.Obrigado/abraco") == []
+         and find_urls("entrada/saida da conta.Corrente/poupanca") == []
+         and find_urls("chegou as 19h.Depois/talvez amanha") == []),
+        ("the registry list is the thing that says so",
+         "store" in _TLDS and "obrigado" not in _TLDS and len(_TLDS) > 1000),
+        ("every suffix we accept bare is one that really exists",
+         _BARE_TLDS <= (_load_tlds() or _BARE_TLDS)),
+        ("and losing the file costs coverage, never correctness: a written out "
+         "address is still an address",
+         find_urls("http://qualquer.coisa") == ["http://qualquer.coisa"]),
     ]
     for name, passed in cases:
         print(f"{'pass' if passed else 'FAIL'}  {name}")

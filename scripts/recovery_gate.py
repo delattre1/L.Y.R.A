@@ -1,32 +1,24 @@
 #!/usr/bin/env python3
-"""The output contract for the other path, the one where the money is gone.
+"""The output contract for the path where the money is already gone.
 
-Every verdict goes through verdict_gate.py. Recovery replies have no verdict, so
-until now they went out unchecked, on the one path where the person is least able
-to second-guess what they are told and most likely to act on it inside a minute.
-A number invented here gets dialled.
+Recovery replies carry no verdict, so this checks them differently: it recomputes
+what recovery_steps.py would have said for that country and holds the reply to
+it. Every step present, word for word and in order. The order is what keeps
+someone from typing a new password into a screen an attacker still holds.
 
-So this recomputes what recovery_steps.py would have said for that country and
-those kinds, and holds the reply to it. Every step has to be there, word for word
-and in order, because the order is the part that keeps someone from typing a new
-password into a screen an attacker still has. And anything dialable or clickable
-in the reply has to trace back either to the script or to what the person
-themselves wrote. There is no field for "trust me, this number is real."
-
-What it cannot check: an agency invented by name with no number and no address
-next to it. Names are too noisy to test for, and someone told to look up an
-office that does not exist finds the second scam waiting under that name.
+Anything dialable or clickable has to trace back to the script or to what the
+person themselves wrote. There is no field for "trust me, this number is real".
+What it cannot catch is an agency named with no number beside it.
 
 Reads one JSON object on stdin:
     reply     the text about to be sent
-    country   "us" or "br", the country whose steps were run
-    gave      what the person handed over, the same list passed to recovery_steps
-    lang      optional, "en" or "pt", defaulting the way recovery_steps defaults
-    said      optional, what the person themselves wrote, so their own numbers
-              can be quoted back to them
+    country   "us" or "br", whose steps were run
+    gave      what they handed over, the same list passed to recovery_steps
+    lang      optional, "en" or "pt"
+    said      optional, what the person wrote, so their own numbers can be
+              quoted back to them
 
-Exits 0 and prints the reply if it holds up, or prints the reason to stderr and
-exits 2, and nothing reaches the person.
+Prints the reply and exits 0, or the reason to stderr and exits 2.
 
     echo '{"reply": "...", "country": "br", "gave": ["money"]}' | recovery_gate.py
     recovery_gate.py --self-test
@@ -41,15 +33,15 @@ import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import language
+import pii_check
 import police_report
 import recovery_steps
 
 MIN_REPLY = 40
 
 # A promise about the money, or a word about what they could have done
-# differently. The first sets up the recovery scam, because when the bank says no
-# the person who promised otherwise is the one who sounded right. The second is
-# the thing SOUL.md says never to say to someone on this path.
+# differently. The first sets up the recovery scam: when the bank says no, the
+# one who promised otherwise is the one who sounded right.
 FORBIDDEN = {
     "en": [
         (r"\b(you|we)('ll| will| are going to)? ?get (it|them|the money|your money) back\b",
@@ -96,6 +88,7 @@ class Refused(Exception):
 
 
 def fold(text):
+    """Lowercase and strip accents."""
     text = unicodedata.normalize("NFD", text.lower())
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
@@ -167,8 +160,8 @@ def check(payload):
             "reply: the steps are out of order. The order is the part that matters, "
             "and it is the order the script printed them in.")
 
-    # Whatever is left once the script's own words are taken out is the model's,
-    # and that is the part worth reading closely.
+    # What is left once the script's own words are removed is the model's, and that
+    # is the part worth reading closely.
     checkable = reply
     for part in corpus_for(country, gave, lang):
         checkable = checkable.replace(part, " ")
@@ -209,6 +202,15 @@ def check(payload):
         raise Refused(
             "reply: this arrives as a text message, where a bullet is a hyphen and a "
             "heading is a pound sign. Plain text and line breaks only.")
+
+    # The one thing `said` does not excuse. Everything else in this reply can be
+    # traced back to the script or to the person; a card number they pasted is
+    # theirs either way, and repeating it is what makes the copy.
+    leaked = pii_check.find(reply)
+    if leaked:
+        raise Refused(
+            f"reply: it contains {leaked[0]['detail']}. Tell them what to do about "
+            f"it without writing the number out.")
 
     return reply
 
@@ -297,6 +299,9 @@ def _self_test():
                      "said": "I already paid, what should I do?",
                      "reply": "Do these in order:\n\n"
                      + "\n".join(recovery_steps.steps_for("br", ["money"], "en"))}))),
+        ("a card number does not go back out, even one they gave us",
+         refused(dict(base, said="paguei com o cartao 4111 1111 1111 1111",
+                      reply=good + "\n\nO cartao 4111 1111 1111 1111 precisa ser cancelado."))),
         ("an unknown country is refused", refused(dict(base, country="pt"))),
         ("a missing gave is refused", refused({"reply": good, "country": "br"})),
         ("an unknown kind is refused", refused(dict(base, gave=["dignity"]))),
@@ -311,6 +316,7 @@ def _self_test():
 
 
 def _message(payload, needle):
+    """Whether check() refuses this payload with a reason containing needle."""
     try:
         check(payload)
     except Refused as exc:
@@ -319,6 +325,7 @@ def _message(payload, needle):
 
 
 def main():
+    """Read one JSON object, print the reply it allows or the reason it does not."""
     if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
         print(__doc__.strip())
         return 0

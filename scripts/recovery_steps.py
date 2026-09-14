@@ -1,34 +1,18 @@
 #!/usr/bin/env python3
-"""What to do once the money is already gone, in the right order.
+"""What to do once the money is gone, in the right order, by country.
 
-The order matters and it is different in each country, so it is written down here
-instead of being recalled under pressure. Where a step names a phone number, a
-site, or an agency, that name is fixed text and never something the model fills
-in from memory.
+Every number, site and agency named here is fixed text. Nothing is filled in from
+memory, because a remembered number is how the second scam starts.
 
-Checked against the source rather than remembered, on 13 September 2026:
+Verified against the source on 13 September 2026: reportfraud.ftc.gov, ic3.gov,
+identitytheft.gov, the free credit freeze at Equifax, Experian and TransUnion,
+CVV 188 (24h, free), 988 (24/7, call and text), and the MED as Banco Central's
+own name for it.
 
-    reportfraud.ftc.gov   answers, on an ftc.gov host
-    ic3.gov               answers, and calls itself the Internet Crime
-                          Complaint Center
-    identitytheft.gov     answers
-    the credit freeze     consumer.ftc.gov, in its own words: "Cost: Free.
-                          Contact all three of the credit bureaus -- Equifax,
-                          Experian, and TransUnion"
-    CVV 188               cvv.org.br, in its own words: "telefone 188 (24
-                          horas por dia e sem custo de ligacao)"
-    988                   988lifeline.org: "available 24/7/365. Your
-                          conversations are free and confidential", with call
-                          and text both offered
-    the MED               Banco Central publishes a FAQ entry under that name,
-                          so the mechanism is theirs and is called that
-
-What is NOT checked, because those pages render through JavaScript and could
-not be read: who opens a MED request and how long the window is, which states
-run a delegacia eletronica, and what Serasa's fraud alert actually does. The
-actions are still right -- call the bank, say it was a scam, file the report --
-but the mechanics behind them are mine and want a native reader before this is
-in front of anybody's mother.
+Not verified, because those pages render through JavaScript: who opens a MED and
+how long the window is, which states run a delegacia eletronica, and what
+Serasa's fraud alert does. The actions are right. The mechanics behind them are
+mine and want a native reader.
 
     recovery_steps.py --country us --gave money,password
     recovery_steps.py --country br --gave code --lang pt
@@ -37,23 +21,19 @@ in front of anybody's mother.
 import argparse
 import sys
 
-# The order of this tuple is the order the steps come out in, and it is the part
-# of this file that does the most work. Containment first: while someone else is
-# on the screen, every password typed into it is typed to them, so disconnecting
-# comes before anything else even though it is not the step about money. After
-# that it runs by how fast the window closes. Recall clocks are measured in
-# hours, a stolen code is an account being taken over right now, a card can be
-# frozen from the app, and credit stays exposed for months either way.
+import countries
+
+# The order of this tuple is the order the steps come out in, and it does the
+# most work in this file. Containment first: while someone else is on the screen,
+# every password typed into it is typed to them. After that, by how fast the
+# window closes. Recall clocks run in hours; credit stays exposed for months.
 KINDS = ("remote", "money", "code", "card", "password", "identity")
 
-DEFAULT_LANG = {"us": "en", "br": "pt"}
 
-# What someone actually says they handed over. These are the words a person uses
-# and the words a model reaches for, and refusing them costs a whole turn each
-# time: the live agent spent two asking for "BR" and for "pix" before finding
-# the spelling this file wanted. The instrument is not the kind -- a Pix, a wire
-# and a boleto are all money leaving -- so the mapping belongs here rather than
-# in whoever is typing.
+# The words a person actually uses, and the ones a model reaches for. Refusing a
+# spelling costs a whole turn, and the live agent lost two of them to "BR" and
+# "pix". A Pix, a wire and a boleto are all money leaving, so the instrument maps
+# to the kind here rather than in whoever is typing.
 SYNONYMS = {
     "pix": "money", "boleto": "money", "ted": "money", "doc": "money",
     "transfer": "money", "transferencia": "money", "wire": "money",
@@ -159,8 +139,7 @@ STEPS = {
     },
 }
 
-# The two numbers that matter most in this whole codebase, and the ones with the
-# least room to be wrong, so they are here under test with everything else
+# The two numbers with the least room to be wrong, so they sit here under test
 # instead of being remembered in the moment.
 CRISIS = {
     "us": {"en": "In the United States, 988 answers calls and texts, any hour, at no cost.",
@@ -177,7 +156,13 @@ CLOSING = [
 ]
 
 
+# Which countries have steps comes from STEPS; which language each defaults to
+# comes from countries.py. Adding a country to STEPS is the whole edit.
+DEFAULT_LANG = {country: countries.default_lang(country) for country in STEPS}
+
+
 def steps_for(country, gave, lang):
+    """The steps for this country and these kinds, in order, warning last."""
     ordered = [k for k in KINDS if k in gave]
     out = []
     for kind in ordered:
@@ -218,6 +203,9 @@ def _self_test():
     cases.append(("the united states line is 988", "988" in CRISIS["us"]["en"]))
     cases.append(("the brazilian line is the CVV on 188",
                   "188" in CRISIS["br"]["pt"] and "CVV" in CRISIS["br"]["pt"]))
+    cases.append(("every country with steps gets a language without being told twice",
+                  set(DEFAULT_LANG) == set(STEPS) and DEFAULT_LANG["br"] == "pt"
+                  and DEFAULT_LANG["us"] == "en"))
     cases.append(("neither country is handed the other one's number",
                   "188" not in CRISIS["us"]["en"] and "988" not in CRISIS["br"]["pt"]))
     cases.append(("the instrument someone names maps to the kind",
@@ -250,6 +238,7 @@ def _self_test():
 
 
 def main():
+    """Print the steps, or the crisis line, for what the arguments describe."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--country", type=str.lower, choices=sorted(STEPS))
     parser.add_argument("--gave", default="money",

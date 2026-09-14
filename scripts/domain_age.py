@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """How old is this domain, according to the registry.
 
-A bank's address was registered in 1995. The address impersonating it was
-registered nine days ago, because the last one got taken down. Age catches the
-impersonation without anyone having written down what the bank's real address is,
-which is the part a hardcoded table can never keep up with.
+A bank's address was registered in 1995. The one impersonating it was registered
+nine days ago, because the last one got taken down. Age catches that without
+anyone having written down the bank's real address, which is the part a hardcoded
+table can never keep up with.
 
-This is the only piece of Lyra that talks to the network. It asks rdap.org, which
-routes the question to whichever registry owns the name, and it fails open: no
-answer means no signal, never a softer verdict. Answers are cached so the same
-domain is asked about once.
+This is the only piece of Lyra that talks to the network. It asks rdap.org and
+fails open: no answer means no signal, never a softer verdict. Answers are cached
+so a domain is asked about once.
 
     domain_age.py bradesco.com.br
     domain_age.py --self-test
@@ -40,6 +39,7 @@ YOUNG_DAYS = 180
 
 
 def _load_cache():
+    """The answers we already have, or an empty cache."""
     try:
         with open(CACHE_PATH, encoding="utf-8") as handle:
             return json.load(handle)
@@ -48,6 +48,7 @@ def _load_cache():
 
 
 def _save_cache(cache):
+    """Write the cache, giving up quietly if the disk says no."""
     try:
         os.makedirs(STATE, exist_ok=True)
         tmp = CACHE_PATH + ".tmp"
@@ -75,11 +76,13 @@ def registration_date(document):
 
 
 def days_since(moment, now=None):
+    """Whole days between a moment and now."""
     now = now or datetime.now(timezone.utc)
     return int((now - moment).total_seconds() // 86400)
 
 
 def _fetch(domain):
+    """Ask rdap.org about one domain. Raises on anything that goes wrong."""
     request = urllib.request.Request(
         RDAP.format(domain),
         headers={"User-Agent": AGENT, "Accept": "application/rdap+json"},

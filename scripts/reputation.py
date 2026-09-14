@@ -2,22 +2,16 @@
 """Has anyone already seen this exact link and called it dangerous?
 
 Feeds are downloaded on a schedule and matched locally, so checking a link costs
-nothing and tells nobody. A link out of someone's message never leaves this
-container, which matters more here than the few extra hits an online API would
-give us.
+nothing and tells nobody. The link never leaves this container.
 
-What each source is good for is not the same thing:
+    urlhaus    malware being served right now, often from a real site that was
+               broken into. Nothing structural gives that away.
+    openphish  confirmed phishing pages, including the ones that look clean.
 
-    urlhaus    malware being served right now, often from a real site that got
-               broken into. Nothing structural gives that away, so this is the
-               one check that can see it.
-    openphish  confirmed phishing pages, which overlaps with what the link and
-               wording checks already catch, and adds the ones that look clean.
-
-A hit is strong evidence. A miss is worth exactly nothing, and must never read as
-a clean bill of health: these lists know yesterday's URLs, and a phishing page
-put up an hour ago is on none of them. That asymmetry is the same one the verdict
-scale is built on.
+A hit is strong evidence. A miss is worth exactly nothing and must never read as
+a clean bill of health: these lists know yesterday's URLs, and a page put up an
+hour ago is on none of them. That asymmetry is the one the verdict scale is
+built on.
 
     reputation.py --refresh
     reputation.py --serve --every 3600
@@ -57,10 +51,17 @@ SOURCES = {
 # gets matched, since a hit is a hit.
 STALE_DAYS = 14
 
-# Feeds list malware and phishing hosted on file lockers, paste sites, and
-# CDNs, which are not themselves dangerous. A host carrying more entries than
-# this is shared infrastructure, so its name alone says nothing.
-MAX_HOST_ENTRIES = 25
+# Feeds list malware hosted on file lockers, paste sites and CDNs, which are not
+# themselves dangerous. A host holding more than its feed's share is
+# infrastructure the feed is indexing, so its name alone says nothing.
+#
+# A share, not a number: 25 entries is 1% of urlhaus and 5% of openphish, so a
+# flat 25 was two settings wearing one name. The bounds fail in opposite
+# directions. Too low reads a dedicated scam host as a file locker; too high
+# accuses mega.nz of being broken into.
+HOST_SHARE = 0.015
+HOST_FLOOR = 10
+HOST_CEILING = 50
 
 # Phishing has a half life measured in hours, so a feed downloaded last week is
 # most of the way to useless. This is how often --serve goes back for more, and
@@ -85,11 +86,31 @@ def _normalise(url):
     return (f"{host}/{path}" if path else host), host
 
 
+def _on_disk(feed_dir):
+    """Every feed in the directory: the ones we download, and the ones we were given.
+
+    An operator drops their own blocklist in here as a .txt and it gets matched
+    like the rest. What it cannot do is clear a message: only a feed we
+    downloaded has a coverage we can reason about, so only those answer when
+    triage asks whether the feeds are live. Otherwise one hand written file,
+    touched once, switches off the stale-feed rule.
+    """
+    names = set(SOURCES)
+    try:
+        for entry in os.listdir(feed_dir):
+            if entry.endswith(".txt") and not entry.endswith(".tmp"):
+                names.add(entry[: -len(".txt")])
+    except OSError:
+        pass
+    return sorted(names)
+
+
 def load(feed_dir=None):
     """Read whatever feeds are on disk. Missing files are not an error."""
     feed_dir = feed_dir or FEED_DIR
     loaded = {}
-    for name, source in SOURCES.items():
+    for name in _on_disk(feed_dir):
+        kind = SOURCES[name]["kind"] if name in SOURCES else "dangerous"
         path = os.path.join(feed_dir, name + ".txt")
         try:
             with open(path, encoding="utf-8", errors="replace") as handle:
@@ -105,9 +126,16 @@ def load(feed_dir=None):
             key, host = _normalise(line)
             urls.add(key)
             hosts[host] = hosts.get(host, 0) + 1
-        loaded[name] = {"kind": source["kind"], "urls": urls, "hosts": hosts,
-                        "age_days": age_days, "stale": age_days > STALE_DAYS}
+        loaded[name] = {"kind": kind, "urls": urls, "hosts": hosts,
+                        "age_days": age_days, "stale": age_days > STALE_DAYS,
+                        "downloaded": name in SOURCES,
+                        "limit": host_limit(len(urls))}
     return loaded
+
+
+def host_limit(entries):
+    """How many listings a host can carry before its name stops meaning anything."""
+    return int(min(HOST_CEILING, max(HOST_FLOOR, round(entries * HOST_SHARE))))
 
 
 def check(url, feeds):
@@ -119,7 +147,7 @@ def check(url, feeds):
                     "detail": f"{name} lists this exact address as {feed['kind']}"}
     for name, feed in feeds.items():
         count = feed["hosts"].get(host, 0)
-        if 0 < count <= MAX_HOST_ENTRIES:
+        if 0 < count <= feed.get("limit", HOST_CEILING):
             return {"code": f"listed_{feed['kind']}_host", "weight": WEIGHTS["host"],
                     "detail": (f"{name} lists {count} address(es) on {host} as "
                                f"{feed['kind']}, so the site may be broken into")}
@@ -174,9 +202,8 @@ def serve(every=REFRESH_EVERY, feed_dir=None, sleeper=time.sleep, forever=True):
     """Keep the feeds current for as long as the supervisor keeps us alive.
 
     Asking on a schedule rather than on demand is what lets a link be checked
-    without telling anyone which link it was. Restarts are cheap because the file
-    on disk decides what is due, so a container that bounces does not go back to
-    the sources for a copy it already has.
+    without telling anyone which link it was. The file on disk decides what is
+    due, so a container that bounces does not re-download what it has.
     """
     while True:
         names = due(feed_dir, every)
@@ -196,10 +223,14 @@ def _self_test():
             handle.write("# comment line\n"
                          "http://compromised-shop.com/wp-content/x.exe\n"
                          "https://compromised-shop.com/uploads/y.bin\n")
+        shared = HOST_FLOOR * 3      # comfortably past any limit this feed can have
         with open(os.path.join(folder, "openphish.txt"), "w", encoding="utf-8") as handle:
             handle.write("https://www.fake-bank.top/login/\n")
-            for n in range(MAX_HOST_ENTRIES + 5):
+            for n in range(shared):
                 handle.write(f"https://filelocker.example/files/{n}\n")
+        # Not one of ours. An operator dropped it in the directory.
+        with open(os.path.join(folder, "companyblock.txt"), "w", encoding="utf-8") as handle:
+            handle.write("https://known-bad.example/pay\n")
 
         def backdated(seconds):
             stamp = time.time() - seconds
@@ -209,7 +240,8 @@ def _self_test():
 
         feeds = load(folder)
         cases = [
-            ("loads both feeds", set(feeds) == {"urlhaus", "openphish"}),
+            ("loads the feeds we download",
+             {"urlhaus", "openphish"} <= set(feeds)),
             ("exact malware url is evidence",
              check("http://compromised-shop.com/wp-content/x.exe", feeds)["weight"] == 3),
             ("scheme does not matter",
@@ -235,6 +267,22 @@ def _self_test():
             ("a feed nobody has downloaded here is due", due(folder + "/nope") == list(SOURCES)),
             ("a feed downloaded a minute ago is not due", due(folder, every=3600) == []),
             ("a feed downloaded two hours ago is due", backdated(7200) == sorted(SOURCES)),
+            # A number that meant one and a bit percent of one feed and five
+            # percent of another was two different settings wearing one name.
+            ("the shared host limit follows the size of the feed",
+             host_limit(2000) == 30 and host_limit(4000) == 50),
+            ("a feed too small for a share of it to mean anything keeps the floor",
+             host_limit(40) == HOST_FLOOR and host_limit(0) == HOST_FLOOR),
+            ("and one large enough to swallow everything keeps the ceiling",
+             host_limit(10 ** 6) == HOST_CEILING),
+            # An operator's own blocklist: matched like any other, and unable to
+            # tell triage that the feeds can answer.
+            ("a file the operator dropped in is read", "companyblock" in feeds),
+            ("and matched", check("https://known-bad.example/pay", feeds)["weight"] == 3),
+            ("but it is not one we downloaded",
+             feeds["companyblock"]["downloaded"] is False),
+            ("while the ones we did are", feeds["urlhaus"]["downloaded"] is True),
+            ("and nothing tries to download it", "companyblock" not in due(folder + "/nope")),
         ]
 
     for name, passed in cases:

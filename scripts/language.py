@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """Which of the two languages someone wrote in.
 
-Lyra answers in the language the person used, and getting that wrong is not a
-cosmetic slip: somebody already worried is being answered in a language they may
-not read, by something they were told would help. It happened on the live agent
-inside an hour, on a conversational turn where no gate was watching.
+Getting this wrong is not cosmetic: somebody already worried is answered in a
+language they may not read, by something they were told would help.
 
-The hard part is that the language of the forwarded scam says nothing about the
-language of the person. A Brazilian in Orlando forwards a Portuguese message and
-asks about it in English, and both readings of "what language is this turn in"
-are defensible until you notice only one of them is about the reader.
+It reads the person's own words and only those. The language of the forwarded
+scam says nothing about the reader, because a Brazilian in Orlando forwards a
+Portuguese message and asks about it in English.
 
-So this reads the person's own words, and only those. Function words carry it:
-they are frequent, short, and almost never shared between the two languages,
-which is what makes counting them enough without a model or a dependency. A
-message with nothing to go on returns None, and a gate that gets None leaves the
-choice where it was rather than refusing on a guess.
+Function words carry it: frequent, short, and almost never shared between the two
+languages, which is enough without a model or a dependency. A message with
+nothing to go on returns None, and a gate that gets None leaves the choice where
+it was rather than refusing on a guess.
 """
 
 import re
@@ -32,8 +28,7 @@ PT = {
     "dinheiro", "conta", "foi", "ser", "tem", "seria", "deixa", "esquece",
     "recebi", "mandaram", "chame", "hoje", "ontem", "pouco", "achei", "alguem",
     "qual", "quem", "onde", "como", "se", "das", "dos", "num", "numa", "pelo",
-    # Greetings and one-word replies. A message can be a single word and still
-    # say which language it is, and those are the ones that got answered wrong:
+    # Greetings and one-word replies, which are the ones that got answered wrong:
     # "Hello" came back as "Oi" twice, because a greeting reads as having no
     # language and the conversation's momentum fills the gap.
     "oi", "ola", "opa", "eai", "bom", "boa", "dia", "tarde", "noite", "valeu",
@@ -58,6 +53,7 @@ MARGIN = 1
 
 
 def fold(text):
+    """Lowercase and strip accents."""
     text = unicodedata.normalize("NFD", text.lower())
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
 

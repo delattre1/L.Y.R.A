@@ -2,21 +2,19 @@
 """What the message wants you to pay with, and whether the numbers agree.
 
 Wording gets rewritten until no table catches it. Account details cannot be. A
-boleto carries the bank that issued it, the amount and the due date inside the
-number itself, and every Pix key is one of five formats with the arithmetic to
-prove it. So this reads the instrument instead of the story wrapped around it.
+boleto carries the issuing bank, the amount and the due date inside its own
+number, and every Pix key is one of five formats with arithmetic to prove it. So
+this reads the instrument instead of the story wrapped around it.
 
-Two checks here reach certainty instead of suspicion. A boleto drawn on one bank
-while the message claims to come from a different bank is forged. A boleto that
-charges more than any amount written in the message is forged. The rest of Lyra
-weighs evidence. These two catch a lie.
+Two checks reach certainty rather than suspicion. A boleto drawn on one bank
+while the message claims another is forged. A boleto that charges more than any
+amount written in the message is forged. The rest of the findings put a fact in
+front of the reader: a random Pix key proves nothing, and a small shop sends one
+every day, but knowing the key carries no name changes what someone looks at
+before confirming.
 
-The other findings are here to put a fact in front of the reader. A random Pix
-key proves nothing, and a small shop sends one every day, but knowing the key
-carries nobody's name changes what a person should look at before confirming.
-
-For utility bills only the block check digits are verified, which is enough:
-the amount lives inside the first two blocks, so altering it breaks them.
+For utility bills only the block check digits are verified, which is enough: the
+amount lives inside the first two blocks, so altering it breaks them.
 
 Nothing here touches the network.
 
@@ -30,9 +28,8 @@ import sys
 import unicodedata
 from datetime import date, timedelta
 
-# COMPE codes, used to name the bank that issued a boleto and to notice when the
-# message claims to be a different bank. The table is deliberately short and an
-# unknown code stays unknown, never suspicious.
+# COMPE codes: which bank issued a boleto, and whether that matches what the
+# message claims. An unknown code stays unknown, never suspicious.
 BANKS = {
     "001": "Banco do Brasil", "004": "Banco do Nordeste", "021": "Banestes",
     "033": "Santander", "041": "Banrisul", "070": "BRB", "077": "Banco Inter",
@@ -44,22 +41,40 @@ BANKS = {
     "748": "Sicredi", "756": "Sicoob",
 }
 
-# The claim arrives from the model as a brand name. Only banks resolve here. A
-# phone company billing through Itau is ordinary, so a claim that resolves to
-# nothing produces no finding at all.
-BANK_ALIASES = {
-    "banco do brasil": "001", "bb": "001", "banco do nordeste": "004",
-    "banestes": "021", "santander": "033", "banrisul": "041", "brb": "070",
-    "inter": "077", "ailos": "085", "caixa": "104", "caixa economica": "104",
-    "caixa economica federal": "104", "cef": "104", "unicred": "136",
-    "btg": "208", "btg pactual": "208", "original": "212", "bradesco": "237",
-    "next": "237", "nubank": "260", "nu": "260", "nu pagamentos": "260",
-    "pagbank": "290", "pagseguro": "290", "mercado pago": "323", "c6": "336",
-    "c6 bank": "336", "itau": "341", "itau unibanco": "341", "unibanco": "341",
-    "picpay": "380", "safra": "422", "pan": "623", "bv": "655",
-    "votorantim": "655", "daycoval": "707", "neon": "735", "sicredi": "748",
-    "sicoob": "756",
+# The claim arrives as a brand name and only banks resolve. A phone company
+# billing through Itau is ordinary, so a claim that resolves to nothing produces
+# no finding.
+#
+# Read off BANKS rather than typed twice: the full name, plus the first word that
+# is not scaffolding, which turns "Itau Unibanco" into "itau". A hand copied
+# table drifts, and this one decides a finding that claims certainty.
+_SCAFFOLD = {"banco", "do", "da", "de"}
+
+# What the name does not give you. Brands people actually type that the
+# registered name has no way to produce: an abbreviation, a product sold under
+# another name, a bank that was bought.
+BANK_EXTRA = {
+    "bb": "001", "caixa economica": "104", "cef": "104",
+    "next": "237", "nu": "260", "nu pagamentos": "260",
+    "pagseguro": "290", "unibanco": "341", "votorantim": "655",
 }
+
+
+def _aliases(banks, extra):
+    """Every spelling of a bank name we accept, and which code it means."""
+    out = {}
+    for code, name in banks.items():
+        folded = re.sub(r"\s+", " ", fold(name)).strip()
+        words = [w for w in folded.split() if w not in _SCAFFOLD and len(w) > 1]
+        for form in {folded} | ({words[0]} if words else set()):
+            if form and form not in _SCAFFOLD:
+                out.setdefault(form, set()).add(code)
+    # A spelling that could mean two banks means neither. Nothing produces one
+    # today and the self-test says so, but a bank added later might.
+    resolved = {form: codes.pop() for form, codes in out.items() if len(codes) == 1}
+    resolved.update(extra)
+    return resolved
+
 
 SEGMENTS = {
     "1": "a city hall", "2": "a water utility", "3": "an electricity or gas utility",
@@ -99,8 +114,12 @@ MONEY = [
 
 
 def fold(text):
+    """Lowercase and strip accents."""
     text = unicodedata.normalize("NFD", text.lower())
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+
+BANK_ALIASES = _aliases(BANKS, BANK_EXTRA)
 
 
 def bank_from_claim(claim):
@@ -115,6 +134,7 @@ def bank_from_claim(claim):
 
 
 def _mod10(digits):
+    """Luhn check digit."""
     total, factor = 0, 2
     for char in reversed(digits):
         product = int(char) * factor
@@ -144,6 +164,7 @@ def _mod11_block(digits):
 
 
 def cpf_ok(digits):
+    """Whether a CPF's two check digits add up."""
     if len(digits) != 11 or len(set(digits)) == 1:
         return False
     for size in (9, 10):
@@ -154,6 +175,7 @@ def cpf_ok(digits):
 
 
 def cnpj_ok(digits):
+    """Whether a CNPJ's two check digits add up."""
     if len(digits) != 14 or len(set(digits)) == 1:
         return False
     weights = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
@@ -166,6 +188,7 @@ def cnpj_ok(digits):
 
 
 def aba_ok(digits):
+    """Whether a nine digit routing number's checksum adds up."""
     if len(digits) != 9 or set(digits) == {"0"}:
         return False
     d = [int(c) for c in digits]
@@ -186,6 +209,7 @@ def due_date(factor, today=None):
 
 
 def brl(cents):
+    """Centavos written as R$ 1.234,56."""
     return "R$ " + f"{cents / 100:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
@@ -203,6 +227,7 @@ def amounts_in(text):
 
 
 def parse_boleto(run):
+    """Read a 47 digit bank boleto or a 48 digit utility one, or return nothing."""
     if len(run) == 47:
         return _parse_bank_boleto(run)
     if len(run) == 48 and run[0] == "8":
@@ -211,6 +236,7 @@ def parse_boleto(run):
 
 
 def _parse_bank_boleto(line):
+    """Bank, amount and due date inside the line, and whether the check digits hold."""
     barcode = line[0:4] + line[32] + line[33:47] + line[4:9] + line[10:20] + line[21:31]
     valid = (_mod10(line[0:9]) == int(line[9])
              and _mod10(line[10:20]) == int(line[20])
@@ -222,6 +248,7 @@ def _parse_bank_boleto(line):
 
 
 def _parse_utility_boleto(line):
+    """Segment and amount inside the line, and whether the blocks hold."""
     value_id = line[2]
     check = _mod10 if value_id in ("6", "7") else _mod11_block
     barcode, valid = "", True
@@ -238,10 +265,12 @@ def _parse_utility_boleto(line):
 
 
 def _near(text, start, end, cue, window=80):
+    """Whether a cue word appears within a window around this match."""
     return bool(cue.search(text[max(0, start - window):end + window]))
 
 
 def _boleto_findings(boleto, claims, claimed_bank, written, today):
+    """What a parsed boleto says, and what it contradicts."""
     issuer = boleto["bank_name"] or (f"bank {boleto['bank']}" if boleto["bank"] else None)
     said = ["a boleto for " + brl(boleto["cents"]) if boleto["cents"]
             else "a boleto with no amount in the code"]
@@ -274,6 +303,7 @@ def _boleto_findings(boleto, claims, claimed_bank, written, today):
 
 
 def _pix_findings(text, joined):
+    """Every Pix key in the text, and what the bank app will show for it."""
     out, seen = [], set()
     for pattern in (UUID_RE, FLAT_UUID_RE):
         for match in pattern.finditer(text):
@@ -310,6 +340,7 @@ def _pix_findings(text, joined):
 
 
 def _crypto_findings(text):
+    """Every crypto address in the text."""
     out, seen = [], set()
     for coin, pattern, needs_case in CRYPTO:
         for match in pattern.finditer(text):
@@ -326,6 +357,7 @@ def _crypto_findings(text):
 
 
 def _wire_findings(joined):
+    """A routing number written where a transfer is being asked for."""
     out = []
     for match in NINE_DIGITS.finditer(joined):
         digits = match.group(0)
@@ -361,6 +393,7 @@ def _bank_line(bank="341", cents=8990, factor=1500, free="1234567890123456789012
 
 
 def _utility_line(segment="3", value_id="8", cents=15000):
+    """Build a utility boleto, so the reader can be tested against one."""
     body = "8" + segment + value_id + "0" + f"{cents:011d}" + "0" * 29
     check = _mod10 if value_id in ("6", "7") else _mod11_block
     return "".join(body[s:s + 11] + str(check(body[s:s + 11])) for s in range(0, 44, 11))
@@ -442,6 +475,24 @@ def _self_test():
          due_date(1500, date(2026, 9, 10)) > date(2020, 1, 1)),
         ("a high counter written before the reset keeps its old reading",
          due_date(9500, date(2023, 6, 1)).year == 2023),
+        # The alias table is read off the bank table, so these say the reading
+        # rule works rather than that somebody typed the entry.
+        ("a bank answers to its registered name",
+         bank_from_claim("Itau Unibanco") == "341"),
+        ("and to the first word of it, which is what people write",
+         bank_from_claim("Itaú") == "341" and bank_from_claim("Caixa") == "104"),
+        ("a bank added to the table brings its own spellings",
+         _aliases({"999": "Banco Exemplo Teste"}, {}) ==
+         {"banco exemplo teste": "999", "exemplo": "999"}),
+        ("a spelling that could mean two banks means neither",
+         _aliases({"111": "Banco Igual", "222": "Igual Financeira"}, {}) == {
+             "banco igual": "111", "igual financeira": "222"}),
+        ("a hand written alias still wins, because the name cannot produce it",
+         bank_from_claim("BB") == "001" and bank_from_claim("next") == "237"),
+        ("every bank in the table can be named",
+         all(code in set(BANK_ALIASES.values()) for code in BANKS)),
+        ("a company that is not a bank resolves to nothing",
+         bank_from_claim("Vivo") is None and bank_from_claim("Correios") is None),
     ]
 
     for name, passed in cases:

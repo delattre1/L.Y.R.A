@@ -1,36 +1,30 @@
 #!/usr/bin/env python3
-"""The output contract for Lyra.
+"""The output contract. Every verdict Lyra sends passes through here.
 
-Every reply Lyra sends about a suspicious message goes through here. The model
-proposes a verdict; this script decides whether it goes out, and renders the
-exact text to send. A prompt can be talked out of the asymmetry below; a
-function can't.
-
-The gate runs the message through triage itself rather than believing what the
-proposal says about it. So the model can always be more careful than the
-evidence, and never less.
-
-Usage:
-    echo '{"verdict": "Likely scam", ...}' | verdict_gate.py
-    verdict_gate.py --self-test
+The model proposes a verdict; this decides whether it goes out and renders the
+text to send. It runs triage on the message itself instead of believing the
+proposal, so the model can always be more careful than the evidence and never
+less. A prompt can be talked out of that. A function cannot.
 
 Reads one JSON object on stdin:
-    verdict     one of the four below, spelled exactly
+    verdict     one of Scam, Likely scam, Can't tell, No red flags found
     reasoning   plain language, why this verdict
     next_action one concrete thing the person should do now
     teach_back  one sentence naming the pattern
-    message     what the person forwarded, transcribed if it came as an image
-    lang        "en" or "pt", matching the language the four fields are written in
-    country     optional, "br" or "us", where the person banks. It is what lets a
-                dialling code be read, and it is asked for rather than guessed.
-    asked       optional, what the PERSON wrote to you this turn, in their own
-                words. Not the forwarded message. It decides which language the
-                reply has to be in, and it is the only thing that can.
+    message     what they forwarded, transcribed if it arrived as an image
+    lang        "en" or "pt", matching the four fields above
+    country     optional ISO code of where they bank, which is what lets a
+                dialling code be read
+    asked       optional, what the PERSON wrote this turn, in their own words.
+                It decides the reply's language; the forwarded message never does.
 
 The message is read and dropped. It is never written anywhere.
 
-If the proposal holds up, it prints the reply and exits 0. If it doesn't, it
-prints the reason to stderr and exits 2, and the person gets no message at all.
+Prints the reply and exits 0, or prints the reason to stderr and exits 2. On a
+refusal the person gets nothing at all.
+
+    echo '{"verdict": "Likely scam", ...}' | verdict_gate.py
+    verdict_gate.py --self-test
 """
 
 import json
@@ -41,6 +35,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import language
+import pii_check
 from triage import SEVERITY, floor_for
 
 # Ordered most to least severe. "Safe" is not on this scale: calling a scam
@@ -80,10 +75,9 @@ CAUTION = {
     ),
 }
 
-# Language that promises safety. Rejected anywhere in the outgoing text, even
-# under a "Scam" verdict, because people act on the sentences they read rather
-# than on the one-word label above them. Both languages are checked every time:
-# an English reply has no business containing "pode confiar" either.
+# Language that promises safety, rejected anywhere in the outgoing text even
+# under a "Scam" verdict: people act on the sentences they read, not on the
+# one-word label. Both languages are checked every time.
 FORBIDDEN = (
     r"\bsafe\b",
     r"\bit'?s fine\b",
@@ -121,6 +115,7 @@ class Refused(Exception):
 
 
 def _text(payload, field, minimum):
+    """One required field, refused if missing or too short to be useful."""
     value = payload.get(field)
     if not isinstance(value, str):
         raise Refused(f"{field}: missing or not a string")
@@ -152,9 +147,9 @@ def build(payload):
             "what the person actually sent, transcribed if it arrived as a picture."
         )
 
-    # network=False on purpose: the gate reads registry answers that triage
-    # already cached and never waits on a lookup while someone is waiting for a
-    # reply. A cold cache costs evidence, and evidence only ever adds caution.
+    # network=False on purpose: the gate reads what triage already cached and never
+    # waits on a lookup while someone waits for a reply. A cold cache costs
+    # evidence, and evidence only ever adds caution.
     floor, report = floor_for(message, claims=payload.get("claims"), network=False,
                               country=payload.get("country"))
     if SEVERITY[verdict] < SEVERITY[floor]:
@@ -174,10 +169,8 @@ def build(payload):
 
     written = " ".join([reasoning, next_action, teach_back]).lower()
     counts = {code: len(re.findall(pattern, written)) for code, pattern in MARKERS.items()}
-    # The forwarded message says nothing about the reader: somebody in Orlando
-    # forwards a Portuguese scam and asks about it in English. Only their own
-    # words decide, so only their own words are read. Silence leaves the choice
-    # with the model rather than refusing on a guess.
+    # The forwarded message says nothing about the reader, so only the person's own
+    # words are read. Silence leaves the choice with the model.
     spoken = language.detect(payload.get("asked"))
     if spoken and spoken != lang:
         raise Refused(
@@ -198,11 +191,10 @@ def build(payload):
     parts.append(teach_back)
     reply = "\n\n".join(parts)
 
-    # Check the rendered text rather than each field on its own, so a banned
-    # phrase can't form across a field boundary. Our own caution line is exempt
-    # so that rewording it later can't trip the gate, and addresses are cut out
-    # before the scan: half the phishing domains aimed at Brazil have the word
-    # "seguro" in them, and quoting one is the opposite of reassurance.
+    # Scan the rendered text, not each field, so a banned phrase cannot form across
+    # a boundary. Our own caution line is exempt. Addresses are cut out first:
+    # half the phishing domains aimed at Brazil contain "seguro", and quoting one
+    # is the opposite of reassurance.
     checkable = reply.replace(CAUTION[lang], "")
     checkable = re.sub(r"\S+\.[a-z]{2,}(?:/\S*)?", " ", checkable, flags=re.IGNORECASE)
     for pattern in FORBIDDEN:
@@ -212,6 +204,14 @@ def build(payload):
                 f"reassuring language not allowed: {hit.group(0)!r}. Say what the "
                 "message does, not how safe it is."
             )
+
+    # Absolute, and last, because it holds even for something the person typed
+    # first. Repeating it is what puts it in a log and a screenshot.
+    leaked = pii_check.find(reply)
+    if leaked:
+        raise Refused(
+            f"the reply contains {leaked[0]['detail']}: {leaked[0]['matched'][:4]}... "
+            f"Say what to do about it without writing the number out.")
 
     return reply
 
@@ -264,6 +264,10 @@ def _self_test():
                  verdict="No red flags found")
     cases.append(("caution attached to clean verdict", CAUTION["en"] in build(clear)))
 
+    cases.append(("an ordinary reply carries no secrets and is untouched",
+                  bool(build(dict(ok, next_action="Call the number on the back of "
+                                                  "your card and say it was fraud.")))))
+
     quiet = dict(ok, message="Hey, running late, be there at 7.",
                  verdict="No red flags found")
     cases.append(("quiet message may come back clean", bool(build(quiet))))
@@ -296,6 +300,10 @@ def _self_test():
         ("rejects portuguese reassurance", dict(pt,
             teach_back="Mensagens assim normalmente são legítimas.")),
         ("rejects pode confiar", dict(pt, reasoning="O remetente é conhecido, pode confiar no link.")),
+        ("rejects a card number the person pasted first",
+         dict(ok, next_action="Call the bank about card 4111 1111 1111 1111 right now.")),
+        ("rejects a cpf written out in the reply",
+         dict(pt, next_action="Ligue para o banco sobre o CPF 111.444.777-35 agora mesmo.")),
         ("still rejects reassurance next to an address",
          dict(pt, reasoning="O link vai para seguro-app.top e o site é seguro, pode abrir.")),
     ]:
@@ -313,6 +321,7 @@ def _self_test():
 
 
 def main():
+    """Read one JSON object, print the reply it allows or the reason it does not."""
     if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
         print(__doc__.strip())
         return 0
