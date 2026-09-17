@@ -11,7 +11,7 @@
 #
 # A 403 on pull is stale registry credentials, not the tag: docker logout
 # public.ecr.aws, then build again.
-ARG BASE_IMAGE=public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-8710797b6409c77df560c6198407765d138ea617
+ARG BASE_IMAGE=public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-51f83158a70a383f03a4d03dbd8b6ea102cf0361@sha256:253d7ed3409effa7fa59113d93b4b79bb731d8264cdaf4cd60294924d0110a2e
 FROM ${BASE_IMAGE}
 
 # No COPY --chmod anywhere in this file. It is BuildKit-only, and a stock Docker
