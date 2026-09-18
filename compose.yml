@@ -6,7 +6,7 @@ services:
     # lives. To build against another: docker compose build --build-arg BASE_IMAGE=...
     build: .
     environment:
-      # The ID registered once with agent_index_client.py --register.
+      # The ID the agent-index service registers on first run.
       AGENT_ID: lyra
       # How long a turn runs before she says she is still on it. The default is
       # 180, which is three times longer than a scam check takes, which is why

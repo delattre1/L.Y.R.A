@@ -38,9 +38,11 @@ COPY --chown=0:0 image/status_phrases.yaml /opt/lyra/status_phrases.yaml
 COPY --chown=0:0 scripts/ /opt/lyra/scripts/
 COPY --chown=0:0 tests/ /opt/lyra/tests/
 
-# The leaderboard reporter's client, pinned to the commit the plow-agents README
-# names. Registering the id is a one-off from the host; see the README.
-ADD https://raw.githubusercontent.com/plow-pbc/agent-index-client/f900ff144076f0a766584b6ec4d0993600779b16/standalone/agent_index_client.py /opt/lyra/agent_index_client.py
+# The leaderboard reporter's client, pinned by commit AND checksum: a commit URL
+# alone trusts whatever GitHub serves. Checked in a RUN, not ADD --checksum,
+# which is BuildKit-only like COPY --chmod. The reporter registers on its own.
+ADD https://raw.githubusercontent.com/plow-pbc/agent-index-client/3f116994930cb3d1c23a485851953dd6c1eef039/standalone/agent_index_client.py /opt/lyra/agent_index_client.py
+RUN echo "b23e7db974b1bd00b50557b44d759df170fc6ef17b471c9cfc0cd975843b535c  /opt/lyra/agent_index_client.py" | sha256sum -c -
 
 COPY --chown=0:0 image/cont-init.d/ /etc/cont-init.d/
 COPY --chown=0:0 image/s6-overlay/s6-rc.d/ /etc/s6-overlay/s6-rc.d/

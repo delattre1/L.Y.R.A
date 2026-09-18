@@ -9,8 +9,8 @@
 # s6 a tight restart loop on the first bad network minute, so the loop and the
 # waiting are here.
 #
-# Registering the agent id is a separate one-off you run from the host; see the
-# plow-agents README. This service only reports.
+# Registering is done here too, once: without it the Index counts only the
+# page owner's usage, so any other install of Lyra never shows up.
 set -u
 
 # No id means this install is not on the leaderboard. Exit clean and let the
@@ -37,11 +37,35 @@ done
 PY=/opt/hermes/.venv/bin/python
 [ -x "$PY" ] || PY=$(command -v python3)
 
-while :; do
+client() {
     if [ "$(id -u)" = 0 ]; then
-        s6-setuidgid hermes "$PY" /opt/lyra/agent_index_client.py
+        s6-setuidgid hermes "$PY" /opt/lyra/agent_index_client.py "$@"
     else
-        "$PY" /opt/lyra/agent_index_client.py
-    fi || echo "[agent-index] nothing reported this round; trying again in an hour"
-    sleep 3600
+        "$PY" /opt/lyra/agent_index_client.py "$@"
+    fi
+}
+
+while :; do
+    # Registered already? The client keeps that in its own state, so ask it.
+    #   0  registered      3  not registered      2  state is there, unreadable
+    # 2 is not 3: registering over state the client could not read mints a new
+    # install id and strands the usage already published. Skip the pass.
+    client status >/dev/null
+    case $? in
+        0) ;;
+        3)
+            client --register --agent "$AGENT_ID" >/dev/null || {
+                echo "[agent-index] could not register this pass; trying again in 5 minutes"
+                sleep 300
+                continue
+            }
+            ;;
+        *)
+            echo "[agent-index] could not read this install's state (above); not registering over it"
+            sleep 300
+            continue
+            ;;
+    esac
+    client || echo "[agent-index] nothing reported this round; trying again in 5 minutes"
+    sleep 300
 done
