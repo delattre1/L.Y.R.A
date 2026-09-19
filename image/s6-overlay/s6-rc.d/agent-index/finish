@@ -1,9 +1,0 @@
-#!/command/with-contenv sh
-# shellcheck shell=sh
-# Companion to ./run. With no AGENT_ID the run script exits 0 straight away, and
-# without this s6-supervise would restart it forever. 125 is s6's permanent
-# failure marker, so the slot reports down, which is the truth: this install is
-# not reporting to the index. With an id set, exit non-125 so a crash is
-# restarted the way a supervised service should be.
-[ -n "${AGENT_ID:-}" ] || exit 125
-exit 0

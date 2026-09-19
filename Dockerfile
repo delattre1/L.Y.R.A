@@ -11,7 +11,7 @@
 #
 # A 403 on pull is stale registry credentials, not the tag: docker logout
 # public.ecr.aws, then build again.
-ARG BASE_IMAGE=public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-51f83158a70a383f03a4d03dbd8b6ea102cf0361@sha256:253d7ed3409effa7fa59113d93b4b79bb731d8264cdaf4cd60294924d0110a2e
+ARG BASE_IMAGE=public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-ef0019372ff8bca593611b31ebd2e08f9f1458ff@sha256:a8a2f97ad78b8192d80a984dce81d3bf5a9a883d18cb7b677704913a09b56aee
 FROM ${BASE_IMAGE}
 
 # No COPY --chmod anywhere in this file. It is BuildKit-only, and a stock Docker
@@ -38,11 +38,10 @@ COPY --chown=0:0 image/status_phrases.yaml /opt/lyra/status_phrases.yaml
 COPY --chown=0:0 scripts/ /opt/lyra/scripts/
 COPY --chown=0:0 tests/ /opt/lyra/tests/
 
-# The leaderboard reporter's client, pinned by commit AND checksum: a commit URL
-# alone trusts whatever GitHub serves. Checked in a RUN, not ADD --checksum,
-# which is BuildKit-only like COPY --chmod. The reporter registers on its own.
-ADD https://raw.githubusercontent.com/plow-pbc/agent-index-client/3f116994930cb3d1c23a485851953dd6c1eef039/standalone/agent_index_client.py /opt/lyra/agent_index_client.py
-RUN echo "b23e7db974b1bd00b50557b44d759df170fc6ef17b471c9cfc0cd975843b535c  /opt/lyra/agent_index_client.py" | sha256sum -c -
+# The leaderboard reporter is the base's own (pinned client + s6 "agent-index"
+# service, every 5 minutes). It reads AGENT_ID; the Plow cloud passes no
+# environment, so the id is baked here. Compose sets the same value.
+ENV AGENT_ID=lyra
 
 COPY --chown=0:0 image/cont-init.d/ /etc/cont-init.d/
 COPY --chown=0:0 image/s6-overlay/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
@@ -51,11 +50,8 @@ COPY --chown=0:0 image/s6-overlay/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 # restat the base's own services and would pass silently if one of ours failed
 # to copy.
 RUN chmod -R 0755 /opt/lyra/scripts /opt/lyra/tests \
- && chmod 0644 /opt/lyra/agent_index_client.py \
  && chmod 0755 /etc/cont-init.d/03-lyra-scripts \
-                /etc/s6-overlay/s6-rc.d/feed-refresh/run \
-                /etc/s6-overlay/s6-rc.d/agent-index/run \
-                /etc/s6-overlay/s6-rc.d/agent-index/finish
+                /etc/s6-overlay/s6-rc.d/feed-refresh/run
 
 # Feed downloads and the domain age cache belong on the volume, so a restart
 # does not go back to the sources for a copy we already have.
